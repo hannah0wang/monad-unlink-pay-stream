@@ -36,6 +36,9 @@ export default function EmployerPage() {
   const { address } = useAccount()
   const { writeContractAsync } = useWriteContract()
 
+  // Generate a random 6-digit employee code (100000–999999)
+  const [employeeCode] = useState(() => Math.floor(100000 + Math.random() * 900000))
+
   // Register employee form
   const [rate, setRate]             = useState('100')   // USDCm per period
   const [period, setPeriod]         = useState(86400)
@@ -65,15 +68,7 @@ export default function EmployerPage() {
     query: { enabled: !!address },
   })
 
-  // Next employeeId (shown after registration so employer can relay it to employee)
-  const { data: nextEmployeeId } = useReadContract({
-    address: PAYROLL_MANAGER_ADDRESS,
-    abi: PAYROLL_MANAGER_ABI,
-    functionName: 'nextEmployeeId',
-    query: { enabled: true },
-  })
-
-  // ── Register employee ──────────────────────────────────────────────────────
+// ── Register employee ──────────────────────────────────────────────────────
   async function handleRegister() {
     if (!address) return
     setRegLoading(true)
@@ -86,10 +81,8 @@ export default function EmployerPage() {
         functionName: 'registerEmployee',
         args: [ratePerPeriod, BigInt(period)],
       })
-      // nextEmployeeId before tx = the new employee's id
-      const newId = nextEmployeeId !== undefined ? Number(nextEmployeeId) : null
-      setLastEmployeeId(newId)
-      setRegStatus(`✅ Registered! Employee ID: ${newId} — give this to your employee`)
+      setLastEmployeeId(employeeCode)
+      setRegStatus(`✅ Registered! Employee code: ${employeeCode} — share this with your employee`)
     } catch (err: any) {
       setRegStatus(`❌ ${err.shortMessage ?? err.message}`)
     } finally {
@@ -218,10 +211,10 @@ export default function EmployerPage() {
 
         {lastEmployeeId !== null && (
           <div className="mt-3 p-3 bg-green-400/10 border border-green-400/20 rounded-lg">
-            <div className="text-xs text-green-400 mb-1">Employee ID assigned</div>
-            <div className="text-white font-mono font-bold text-lg">{lastEmployeeId}</div>
+            <div className="text-xs text-green-400 mb-1">Employee code</div>
+            <div className="text-white font-mono font-bold text-2xl tracking-widest">{lastEmployeeId}</div>
             <div className="text-xs text-gray-500 mt-1">
-              Share this ID with your employee — they'll enter it during account setup.
+              Share this 6-digit code with your employee — they'll enter it during setup.
             </div>
           </div>
         )}

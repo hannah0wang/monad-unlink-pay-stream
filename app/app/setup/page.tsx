@@ -464,12 +464,15 @@ export default function SetupPage() {
           <h2 className="text-white font-medium mb-4">Review & Activate</h2>
 
           <div className="mb-4">
-            <label className="block text-xs text-gray-500 mb-1">Your Employee ID (from employer)</label>
+            <label className="block text-xs text-gray-500 mb-1">6-digit employee code (from your employer)</label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="e.g. 482916"
               value={employeeId}
-              onChange={e => setEmployeeId(e.target.value)}
-              className="w-32 bg-[#0E0E16] border border-[#2A2A3A] rounded-lg px-3 py-2 text-white text-sm focus:border-[#836EF9] outline-none"
+              onChange={e => setEmployeeId(e.target.value.replace(/\D/g, ''))}
+              className="w-36 bg-[#0E0E16] border border-[#2A2A3A] rounded-lg px-3 py-2 text-white text-sm font-mono tracking-widest focus:border-[#836EF9] outline-none"
             />
           </div>
 
