@@ -27,17 +27,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               })}
             >
               <UnlinkProvider chain="monad-testnet">
-                <nav className="flex items-center justify-between px-6 py-4 border-b border-[#2A2A3A] bg-[#14141F]">
+                <nav style={{ background: '#0A0D17', borderBottom: '1px solid #1C2035' }}
+                  className="flex items-center justify-between px-6 py-3.5">
                   <div className="flex items-center gap-8">
-                    <Link href="/" className="font-bold text-lg text-[#836EF9]">
+                    <Link href="/" className="font-bold text-base tracking-tight" style={{ color: '#836EF9' }}>
                       PrivateHCM
                     </Link>
-                    <div className="flex gap-4 text-sm text-gray-400">
-                      <Link href="/setup"     className="hover:text-white transition-colors">Setup</Link>
-                      <Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link>
-                      <Link href="/employer"  className="hover:text-white transition-colors">Employer</Link>
-                      <Link href="/bills"     className="hover:text-white transition-colors">Bills</Link>
-                      <Link href="/history"   className="hover:text-white transition-colors">History</Link>
+                    <div className="flex gap-1 text-sm">
+                      {[
+                        { href: '/dashboard', label: 'Dashboard' },
+                        { href: '/setup',     label: 'Setup' },
+                        { href: '/employer',  label: 'Employer' },
+                        { href: '/history',   label: 'History' },
+                      ].map(({ href, label }) => (
+                        <Link key={href} href={href}
+                          className="px-3 py-1.5 rounded-lg transition-colors text-slate-400 hover:text-white hover:bg-white/5">
+                          {label}
+                        </Link>
+                      ))}
                     </div>
                   </div>
                   <WalletArea />

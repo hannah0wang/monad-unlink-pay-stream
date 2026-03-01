@@ -55,7 +55,7 @@ export default function HistoryPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Private Transfer History</h1>
           <p className="text-gray-500 text-sm mt-1">
-            ZK-encrypted transfers across all your Unlink accounts
+            Encrypted transfer history across all your accounts
           </p>
         </div>
         <button
@@ -126,9 +126,7 @@ export default function HistoryPage() {
       {/* Privacy note */}
       <div className="mt-6 p-4 bg-[#836EF9]/5 border border-[#836EF9]/20 rounded-xl">
         <div className="text-xs text-gray-400">
-          <span className="text-[#836EF9] font-medium">Private:</span> These transfers are
-          ZK-encrypted on Monad. The public blockchain sees only a single deposit transaction —
-          all bucket routing and bill payments are invisible.
+          <span className="text-[#836EF9] font-medium">Encrypted:</span> Your transfer history is end-to-end encrypted. Only you can see the details of your accounts and transactions.
         </div>
       </div>
     </div>

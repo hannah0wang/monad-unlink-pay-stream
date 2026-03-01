@@ -37,11 +37,10 @@ const TAB_LABELS: Record<Tab, string> = {
 }
 
 const CADENCE_OPTIONS = [
-  { label: 'Demo (60s)', value: 60,      sublabel: 'Hackathon demo only' },
-  { label: 'Hourly',     value: 3600,    sublabel: 'Best for contract work' },
-  { label: 'Daily',      value: 86400,   sublabel: 'Common for gig workers' },
-  { label: 'Weekly',     value: 604800,  sublabel: 'Standard' },
-  { label: 'Biweekly',   value: 1209600, sublabel: 'Most common in the US' },
+  { label: 'Hourly',   value: 3600,    sublabel: 'Best for contract work' },
+  { label: 'Daily',    value: 86400,   sublabel: 'Common for gig workers' },
+  { label: 'Weekly',   value: 604800,  sublabel: 'Standard' },
+  { label: 'Biweekly', value: 1209600, sublabel: 'Most common in the US' },
 ]
 
 const HEALTH_PLANS = [
@@ -53,8 +52,8 @@ const HEALTH_PLANS = [
 ]
 
 const AVAILABLE_BILLERS = [
-  { id: 'electric',  label: 'Monad Electric Co.',   amount: '$12.50/mo',  icon: '⚡' },
-  { id: 'insurance', label: 'Chain Life Insurance', amount: '$89.00/mo',  icon: '🏥' },
+  { id: 'electric',  label: 'City Electric & Gas',  amount: '$12.50/mo', icon: '⚡' },
+  { id: 'insurance', label: 'National Life Insurance', amount: '$89.00/mo', icon: '🏥' },
 ]
 
 const BILL_FREQUENCIES = [
@@ -119,7 +118,7 @@ export default function SetupPage() {
   // ── Step 1: Create wallet ──────────────────────────────────────────────────
   async function handleCreateWallet() {
     setLoading(true)
-    setStatus('Creating Unlink wallet...')
+    setStatus('Creating your secure wallet...')
     try {
       // createWallet() → { mnemonic: string } per Unlink React SDK docs
       const result = await createWallet()
@@ -148,7 +147,7 @@ export default function SetupPage() {
         addrs[key.toLowerCase() as keyof BucketAddresses] = addr
       }
       setBucketAddrs(addrs)
-      setStatus('All 6 accounts ready.')
+      setStatus('All accounts ready.')
       goTo('cadence')
     } catch (err: any) {
       setStatus(`Error: ${err.message}`)
@@ -229,10 +228,10 @@ export default function SetupPage() {
       {/* ── Tab 1: Wallet ── */}
       {tab === 'wallet' && (
         <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6">
-          <h2 className="text-white font-medium mb-2">Create Unlink Wallet</h2>
+          <h2 className="text-white font-medium mb-2">Create Your Secure Wallet</h2>
           <p className="text-gray-400 text-sm mb-5">
-            Your private Unlink wallet holds 6 spending buckets. The executor stores your mnemonic
-            server-side so it can route your paycheck automatically — you only sign once today.
+            Your wallet holds 6 dedicated spending accounts. Once set up, your paycheck routes
+            automatically every cycle — you only do this once.
           </p>
           {walletExists && (
             <div className="mb-4 p-3 bg-green-400/10 border border-green-400/20 rounded-lg text-green-400 text-sm">
@@ -252,9 +251,9 @@ export default function SetupPage() {
       {/* ── Tab 2: Accounts ── */}
       {tab === 'accounts' && (
         <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6">
-          <h2 className="text-white font-medium mb-2">Create 6 Bucket Accounts</h2>
+          <h2 className="text-white font-medium mb-2">Set Up Spending Accounts</h2>
           <p className="text-gray-400 text-sm mb-4">
-            Each bucket is a separate private Unlink account. Wages flow Master → buckets automatically.
+            Each account is dedicated to a specific category. Your paycheck flows to each one automatically every pay period.
           </p>
           <div className="grid grid-cols-2 gap-2 mb-6">
             {(Object.keys(BUCKET) as (keyof typeof BUCKET)[]).map(key => (
@@ -406,8 +405,8 @@ export default function SetupPage() {
         <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6">
           <h2 className="text-white font-medium mb-2">Recurring Bills</h2>
           <p className="text-gray-400 text-sm mb-4">
-            Select bills to pay automatically from your Utilities bucket.
-            The executor pays billers via x402 — no action needed from you.
+            Connect recurring bills to your Utilities account. They'll be paid automatically
+            on schedule — no action needed from you.
           </p>
 
           <div className="space-y-3 mb-6">
@@ -499,8 +498,7 @@ export default function SetupPage() {
           </div>
 
           <div className="mb-4 p-3 bg-[#14141F] border border-[#2A2A3A] rounded-lg text-xs text-gray-400">
-            Free to register. The service cost is covered by a small ops fee
-            withheld automatically from each payroll cycle.
+            A small service fee is withheld automatically from each pay cycle — no upfront cost.
           </div>
 
           <button
@@ -508,7 +506,7 @@ export default function SetupPage() {
             disabled={loading}
             className="w-full py-3 bg-[#836EF9] text-white rounded-xl font-medium hover:bg-[#6B52E0] disabled:opacity-50 transition-colors"
           >
-            {loading ? (status ?? 'Registering...') : 'Register & Start Autopilot'}
+            {loading ? (status ?? 'Activating...') : 'Activate Automated Payroll'}
           </button>
         </div>
       )}

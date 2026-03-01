@@ -77,7 +77,7 @@ export default function EmployerPage() {
   async function handleRegister() {
     if (!address) return
     setRegLoading(true)
-    setRegStatus('Registering employee on-chain...')
+    setRegStatus('Registering employee...')
     try {
       const ratePerPeriod = parseUsdc(rate)
       const tx = await writeContractAsync({
@@ -146,7 +146,7 @@ export default function EmployerPage() {
           rel="noreferrer"
           className="px-3 py-1.5 text-xs border border-[#2A2A3A] text-gray-400 rounded-lg hover:bg-[#2A2A3A] transition-colors"
         >
-          Get testnet USDC ↗
+          Get USDC ↗
         </a>
       </div>
 
@@ -172,8 +172,7 @@ export default function EmployerPage() {
       <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6 mb-4">
         <h2 className="text-white font-medium mb-1">Register Employee</h2>
         <p className="text-gray-500 text-xs mb-4">
-          No Unlink address needed here — the employee registers their private wallet
-          separately via /setup. Give them their Employee ID after registering.
+          Set the pay rate and cadence. Share the Employee ID with your employee after registering so they can complete their setup.
         </p>
 
         <div className="grid grid-cols-2 gap-4 mb-4">
@@ -222,7 +221,7 @@ export default function EmployerPage() {
             <div className="text-xs text-green-400 mb-1">Employee ID assigned</div>
             <div className="text-white font-mono font-bold text-lg">{lastEmployeeId}</div>
             <div className="text-xs text-gray-500 mt-1">
-              Share this with your employee — they enter it during /setup to link their private wallet.
+              Share this ID with your employee — they'll enter it during account setup.
             </div>
           </div>
         )}
@@ -232,8 +231,7 @@ export default function EmployerPage() {
       <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6">
         <h2 className="text-white font-medium mb-4">Fund Payroll</h2>
         <p className="text-gray-500 text-sm mb-4">
-          Lock USDC in PayrollManager. The executor pulls it each pay period and deposits
-          it privately into the employee's Unlink Master account.
+          Add funds to the payroll pool. The system automatically distributes wages to each employee on their scheduled pay date.
         </p>
 
         <div className="flex gap-3 mb-4">
@@ -253,7 +251,7 @@ export default function EmployerPage() {
           disabled={fundLoading || !address}
           className="w-full py-2.5 bg-[#836EF9] text-white rounded-xl text-sm font-medium hover:bg-[#6B52E0] disabled:opacity-50 transition-colors"
         >
-          {fundLoading ? 'Funding...' : `Fund ${fundAmount} USDC → PayrollManager`}
+          {fundLoading ? 'Processing...' : `Add ${fundAmount} USDC to Payroll Pool`}
         </button>
 
         {fundStatus && (
@@ -264,9 +262,7 @@ export default function EmployerPage() {
       {/* Privacy note */}
       <div className="mt-4 p-4 bg-[#836EF9]/5 border border-[#836EF9]/20 rounded-xl">
         <div className="text-xs text-gray-400">
-          <span className="text-[#836EF9] font-medium">Privacy:</span> Only the payroll contract
-          sees USDC amounts. The executor converts wages into 5 private Unlink transfers
-          — your employees' salaries and spending are invisible on-chain.
+          <span className="text-[#836EF9] font-medium">Employee Privacy:</span> Salary amounts and spending are fully encrypted. Employees see their own accounts — nothing is visible to other parties.
         </div>
       </div>
     </div>

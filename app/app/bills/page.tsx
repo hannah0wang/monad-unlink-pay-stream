@@ -53,7 +53,7 @@ export default function BillsPage() {
         setBills(data.bills ?? [])
         setError(null)
       } catch {
-        setError('Could not reach executor')
+        setError('Could not reach payroll server')
       } finally {
         setLoading(false)
       }
@@ -67,7 +67,7 @@ export default function BillsPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Recurring Bills</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Paid automatically from your Utilities bucket via x402 — no action needed.
+            Bills are paid automatically from your Utilities account — no action needed.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -106,7 +106,7 @@ export default function BillsPage() {
                   <div>
                     <div className="text-white font-medium">{bill.label}</div>
                     <div className="text-gray-500 text-xs">
-                      {FREQ_LABELS[bill.frequency_seconds] ?? 'Custom'} · via x402 + Unlink withdraw
+                      {FREQ_LABELS[bill.frequency_seconds] ?? 'Custom'} · automatic
                     </div>
                   </div>
                 </div>
@@ -141,14 +141,13 @@ export default function BillsPage() {
         <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">How automatic bill pay works</div>
         <div className="flex flex-col gap-1.5 text-xs text-gray-400">
           {[
-            ['Scheduler', 'detects bill due date'],
-            ['Executor', 'calls biller\'s x402 endpoint'],
-            ['Biller',   'returns 402 Payment Required'],
-            ['Executor', 'auto-pays from ops wallet (funded by payroll fees)'],
-            ['Unlink',   'withdraws from your Utilities bucket → biller\'s address'],
-          ].map(([who, what]) => (
-            <div key={what} className="flex gap-2">
-              <span className="text-[#836EF9] w-16 shrink-0 font-mono">{who}</span>
+            ['1', 'Bill due date is detected by the scheduler'],
+            ['2', 'Payment is initiated from your Utilities account'],
+            ['3', 'Funds are sent directly to the biller'],
+            ['4', 'Confirmation logged in your transfer history'],
+          ].map(([step, what]) => (
+            <div key={step} className="flex gap-2">
+              <span className="text-[#836EF9] w-4 shrink-0 font-mono">{step}.</span>
               <span>{what}</span>
             </div>
           ))}
