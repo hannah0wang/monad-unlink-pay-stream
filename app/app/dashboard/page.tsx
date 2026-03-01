@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { useUnlink } from '@unlink-xyz/react'
 import { BUCKET, BUCKET_NAMES, BUCKET_COLORS, type BucketKey } from '@/lib/unlink'
@@ -105,24 +105,149 @@ const HEALTH_PLANS = [
 // ─── Tab config ────────────────────────────────────────────────────────────────
 type Tab = 'overview' | 'retirement' | 'taxes' | 'health' | 'utilities' | 'net'
 
-const TABS: Array<{ key: Tab; label: string; icon: string; bucket: BucketKey | null }> = [
-  { key: 'overview',   label: 'Overview',  icon: '◈',  bucket: null },
-  { key: 'retirement', label: '401(k)',     icon: '📈', bucket: 'RETIREMENT' },
-  { key: 'taxes',      label: 'Taxes',      icon: '🏛', bucket: 'TAXES' },
-  { key: 'health',     label: 'Health',     icon: '🏥', bucket: 'HEALTH' },
-  { key: 'utilities',  label: 'Utilities',  icon: '⚡', bucket: 'UTILITIES' },
-  { key: 'net',        label: 'Take-Home',  icon: '💰', bucket: 'NET' },
+// SVG icons for tabs
+const TAB_ICONS: Record<Tab, React.ReactNode> = {
+  overview: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+    </svg>
+  ),
+  retirement: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+    </svg>
+  ),
+  taxes: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/>
+    </svg>
+  ),
+  health: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+    </svg>
+  ),
+  utilities: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>
+  ),
+  net: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+    </svg>
+  ),
+}
+
+const TABS: Array<{ key: Tab; label: string; bucket: BucketKey | null }> = [
+  { key: 'overview',   label: 'Overview',  bucket: null },
+  { key: 'retirement', label: '401(k)',     bucket: 'RETIREMENT' },
+  { key: 'taxes',      label: 'Taxes',      bucket: 'TAXES' },
+  { key: 'health',     label: 'Health',     bucket: 'HEALTH' },
+  { key: 'utilities',  label: 'Utilities',  bucket: 'UTILITIES' },
+  { key: 'net',        label: 'Take-Home',  bucket: 'NET' },
 ]
 
 // ─── Dashboard ─────────────────────────────────────────────────────────────────
+// ─── Earnings chart modal ─────────────────────────────────────────────────────
+
+function EarningsChart({ annualSalary, onClose }: { annualSalary: number; onClose: () => void }) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [hover, setHover] = useState<{ x: number; pct: number } | null>(null)
+
+  const W = 520, H = 250, PAD = { t: 20, r: 16, b: 44, l: 60 }
+  const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b
+
+  const months = Array.from({ length: 13 }, (_, i) => {
+    const d = new Date(); d.setMonth(d.getMonth() + i)
+    return { label: d.toLocaleDateString('en-US', { month: 'short' }), x: PAD.l + (i / 12) * cW }
+  })
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: annualSalary * f, y: PAD.t + cH * (1 - f) }))
+
+  const onMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const r = svgRef.current?.getBoundingClientRect()
+    if (!r) return
+    const pct = Math.max(0, Math.min(1, (e.clientX - r.left - PAD.l) / cW))
+    setHover({ x: PAD.l + pct * cW, pct })
+  }, [cW])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.75)' }} onClick={onClose}>
+      <div className="rounded-2xl p-8 w-[780px] max-w-full" style={{ background: '#0D1117', border: '1px solid #1C2035' }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <h2 className="text-white font-semibold text-lg">Earnings Simulation</h2>
+            <span className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(131,110,249,0.1)', color: '#836EF9', border: '1px solid rgba(131,110,249,0.2)' }}>
+              12-month projection
+            </span>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white text-xl">×</button>
+        </div>
+        <div className="flex gap-8">
+          <svg ref={svgRef} width={W} height={H} className="cursor-crosshair shrink-0" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+            <defs>
+              <linearGradient id="eg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#836EF9" stopOpacity=".25"/>
+                <stop offset="100%" stopColor="#836EF9" stopOpacity=".02"/>
+              </linearGradient>
+            </defs>
+            {yTicks.map(({ v, y }) => (
+              <g key={v}>
+                <line x1={PAD.l} y1={y} x2={PAD.l + cW} y2={y} stroke="#1C2035" strokeWidth={1}/>
+                <text x={PAD.l - 8} y={y + 4} textAnchor="end" fill="#475569" fontSize={10}>
+                  {v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v.toFixed(0)}
+                </text>
+              </g>
+            ))}
+            {months.filter((_, i) => i % 3 === 0).map(({ label, x }) => (
+              <text key={label} x={x} y={H - 6} textAnchor="middle" fill="#475569" fontSize={10}>{label}</text>
+            ))}
+            <path d={`M${PAD.l} ${PAD.t + cH} L${PAD.l + cW} ${PAD.t} L${PAD.l + cW} ${PAD.t + cH}Z`} fill="url(#eg)"/>
+            <path d={`M${PAD.l} ${PAD.t + cH} L${PAD.l + cW} ${PAD.t}`} stroke="#836EF9" strokeWidth={2} fill="none"/>
+            {hover && (
+              <>
+                <line x1={hover.x} y1={PAD.t} x2={hover.x} y2={PAD.t + cH} stroke="#836EF9" strokeWidth={1} strokeDasharray="4 3"/>
+                <circle cx={hover.x} cy={PAD.t + cH * (1 - hover.pct)} r={4} fill="#836EF9"/>
+              </>
+            )}
+          </svg>
+          <div className="flex-1 flex flex-col gap-4 pt-2">
+            {hover ? (
+              <div>
+                <div className="text-white font-bold text-3xl">{(annualSalary * hover.pct).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                <div className="text-slate-500 text-xs mt-0.5">USDCm earned by hover date</div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-white font-bold text-3xl">{annualSalary.toLocaleString()}</div>
+                <div className="text-slate-500 text-xs mt-0.5">USDCm annual salary</div>
+              </div>
+            )}
+            <div className="h-px" style={{ background: '#1C2035' }}/>
+            {[['Per day', (annualSalary / 365).toFixed(2)], ['Per hour', (annualSalary / 8760).toFixed(4)]].map(([l, v]) => (
+              <div key={l} className="flex justify-between text-sm">
+                <span className="text-slate-500">{l}</span>
+                <span className="text-white font-mono text-xs">{v} USDCm</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const { walletExists, balances } = useUnlink() as any
 
-  const [employeeId, setEmployeeId] = useState('0')
+  const [employeeId] = useState(() =>
+    typeof window !== 'undefined' ? (localStorage.getItem('employeeId') ?? '0') : '0'
+  )
   const [status, setStatus]         = useState<StatusResponse | null>(null)
   const [countdown, setCountdown]   = useState(0)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [activeTab, setActiveTab]   = useState<Tab>('overview')
+  const [showChart, setShowChart]   = useState(false)
 
   // Adjustable allocations
   const [retirementPct, setRetirementPct] = useState(6)
@@ -180,6 +305,7 @@ export default function DashboardPage() {
   const centerSub   = hasBalances ? 'USDC total' : 'take-home'
 
   return (
+    <>
     <div className="min-h-screen" style={{ background: '#060914' }}>
       <div className="max-w-5xl mx-auto px-6 py-8">
 
@@ -188,12 +314,6 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-white">Your Paycheck</h1>
             <p className="text-slate-500 text-sm mt-0.5">Automated payroll · encrypted & private</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500">Employee #</label>
-            <input type="number" value={employeeId} onChange={e => setEmployeeId(e.target.value)}
-              className="w-16 rounded-lg px-2 py-1.5 text-white text-sm text-center outline-none"
-              style={{ background: '#0D1117', border: '1px solid #1C2035' }} />
           </div>
         </div>
 
@@ -206,9 +326,17 @@ export default function DashboardPage() {
               Next payroll in{' '}
               <span className="text-[#836EF9] font-semibold font-mono">{formatDuration(countdown)}</span>
             </span>
-            <span className="text-xs text-slate-600 ml-auto">
+            <span className="text-xs text-slate-600">
               Last run: {formatTs(status.schedule.lastRunAt)}
             </span>
+            <button onClick={() => setShowChart(true)}
+              className="ml-auto flex items-center gap-1.5 text-xs font-medium hover:opacity-80 transition-opacity"
+              style={{ color: '#836EF9' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+              Earnings chart
+            </button>
           </div>
         )}
         {fetchError && (
@@ -267,7 +395,7 @@ export default function DashboardPage() {
                   style={activeTab === tab.key
                     ? { background: '#060914', color: 'white', borderBottom: '2px solid #836EF9', marginBottom: '-1px' }
                     : { color: '#64748B' }}>
-                  <span>{tab.icon}</span>
+                  <span>{TAB_ICONS[tab.key]}</span>
                   {tab.label}
                 </button>
               ))}
@@ -334,7 +462,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
-                      style={{ background: `${BUCKET_COLORS.RETIREMENT}20` }}>📈</div>
+                      style={{ background: `${BUCKET_COLORS.RETIREMENT}20`, color: BUCKET_COLORS.RETIREMENT }}>{TAB_ICONS.retirement}</div>
                     <div>
                       <h2 className="text-lg font-semibold text-white">401(k) Retirement</h2>
                       <p className="text-slate-500 text-sm">Auto-withheld each paycheck, pre-tax</p>
@@ -389,7 +517,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
-                      style={{ background: `${BUCKET_COLORS.TAXES}20` }}>🏛</div>
+                      style={{ background: `${BUCKET_COLORS.TAXES}20`, color: BUCKET_COLORS.TAXES }}>{TAB_ICONS.taxes}</div>
                     <div>
                       <h2 className="text-lg font-semibold text-white">Tax Withholding</h2>
                       <p className="text-slate-500 text-sm">Calculated automatically · read-only</p>
@@ -440,7 +568,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
-                      style={{ background: `${BUCKET_COLORS.HEALTH}20` }}>🏥</div>
+                      style={{ background: `${BUCKET_COLORS.HEALTH}20`, color: BUCKET_COLORS.HEALTH }}>{TAB_ICONS.health}</div>
                     <div>
                       <h2 className="text-lg font-semibold text-white">Health Insurance</h2>
                       <p className="text-slate-500 text-sm">Premium withheld pre-tax each paycheck</p>
@@ -632,5 +760,17 @@ export default function DashboardPage() {
 
       </div>
     </div>
+
+    {showChart && (
+      <EarningsChart
+        annualSalary={
+          status?.recentPayslips?.[0]?.gross && status.schedule.cadenceSeconds
+            ? Number(BigInt(status.recentPayslips[0].gross) * 31_557_600n / BigInt(status.schedule.cadenceSeconds)) / 1e18
+            : 52000
+        }
+        onClose={() => setShowChart(false)}
+      />
+    )}
+  </>
   )
 }

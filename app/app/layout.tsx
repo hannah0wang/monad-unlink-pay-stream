@@ -29,7 +29,7 @@ const EMPLOYEE_NAV = [
 ]
 
 const EMPLOYER_NAV = [
-  { href: '/employer', label: 'Payroll Setup' },
+  { href: '/employer', label: 'Payroll Management' },
 ]
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

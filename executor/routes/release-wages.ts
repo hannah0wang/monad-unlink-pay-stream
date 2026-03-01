@@ -38,7 +38,11 @@ export async function releaseWagesHandler(c: Context) {
   const employer = getEmployer(emp.employer_id)
   if (!employer) return c.json({ error: `Employer ${emp.employer_id} not registered` }, 404)
 
-  const amount = BigInt(emp.rate_per_period)
+  // Prorate annual salary to this pay cycle
+  // amount = annual_salary * cadence_seconds / seconds_per_year
+  const SECONDS_PER_YEAR = 31_557_600n  // 365.25 days
+  const annualSalary = BigInt(emp.annual_salary || emp.rate_per_period || 0)
+  const amount = (annualSalary * BigInt(emp.cadence_seconds)) / SECONDS_PER_YEAR
 
   try {
     // ── Check employer Unlink balance ─────────────────────────────────────────

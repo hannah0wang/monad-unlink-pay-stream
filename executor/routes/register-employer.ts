@@ -9,7 +9,7 @@
  *   masterUnlinkAddr:  string   — employer's Master account "unlink1..." address
  *   employees: Array<{
  *     employeeId:      number   — must match employee's /register employeeId
- *     ratePerPeriod:   number   — USDCm (6 dec) per cadence period
+ *     annualSalary:    string   — USDCm annual salary in 18-dec base units (as string)
  *   }>
  *
  * The employer must have already:
@@ -27,7 +27,7 @@ export async function registerEmployerHandler(c: Context) {
     masterUnlinkAddr: string
     employees: Array<{
       employeeId:    number
-      ratePerPeriod: number
+      annualSalary: string
     }>
   }
 
@@ -61,12 +61,13 @@ export async function registerEmployerHandler(c: Context) {
     await registerEmployerWallet(employerId, mnemonic)
 
     // Link employees to this employer and set their rate
-    for (const { employeeId, ratePerPeriod } of employees) {
+    for (const { employeeId, annualSalary } of employees) {
       const existing = getEmployee(employeeId)!
       upsertEmployee({
         ...existing,
-        employer_id:    employerId,
-        rate_per_period: ratePerPeriod,
+        employer_id:   employerId,
+        annual_salary: annualSalary,
+        rate_per_period: 0,  // deprecated, use annual_salary
       })
     }
 
@@ -78,7 +79,7 @@ export async function registerEmployerHandler(c: Context) {
     return c.json({
       ok: true,
       employerId,
-      employees: employees.map(e => ({ employeeId: e.employeeId, ratePerPeriod: e.ratePerPeriod })),
+      employees: employees.map(e => ({ employeeId: e.employeeId, annualSalary: e.annualSalary })),
       message: 'Employer registered. Executor will private-send wages automatically.',
     })
   } catch (err: any) {

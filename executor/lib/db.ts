@@ -21,7 +21,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS employees (
     employee_id             INTEGER PRIMARY KEY,
     employer_id             INTEGER NOT NULL DEFAULT 0,
-    rate_per_period         INTEGER NOT NULL DEFAULT 0,
+    rate_per_period         INTEGER NOT NULL DEFAULT 0,   -- kept for compat; use annual_salary
+    annual_salary           TEXT NOT NULL DEFAULT '0',    -- USDCm in 18-dec base units, as string
     taxes_bps               INTEGER NOT NULL DEFAULT 2500,
     retirement_bps          INTEGER NOT NULL DEFAULT 500,
     health_bps              INTEGER NOT NULL DEFAULT 300,
@@ -66,6 +67,7 @@ db.exec(`
 for (const sql of [
   `ALTER TABLE employees ADD COLUMN employer_id INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE employees ADD COLUMN rate_per_period INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE employees ADD COLUMN annual_salary TEXT NOT NULL DEFAULT '0'`,
   `ALTER TABLE employees ADD COLUMN cadence_seconds INTEGER NOT NULL DEFAULT 86400`,
   `ALTER TABLE employees ADD COLUMN last_run_at INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE employees ADD COLUMN next_run_at INTEGER NOT NULL DEFAULT 0`,
@@ -83,7 +85,8 @@ export interface EmployerConfig {
 export interface EmployeeConfig {
   employee_id:            number
   employer_id:            number
-  rate_per_period:        number
+  rate_per_period:        number   // legacy
+  annual_salary:          string   // USDCm in 18-dec base units (bigint as string)
   taxes_bps:              number
   retirement_bps:         number
   health_bps:             number
@@ -151,15 +154,16 @@ export function upsertEmployee(config: Omit<EmployeeConfig, 'last_run_at' | 'nex
   const next = now + config.cadence_seconds
   db.prepare(`
     INSERT INTO employees (
-      employee_id, employer_id, rate_per_period,
+      employee_id, employer_id, rate_per_period, annual_salary,
       taxes_bps, retirement_bps, health_bps, utilities_bps,
       cadence_seconds, last_run_at, next_run_at,
       master_unlink_addr, taxes_unlink_addr, retirement_unlink_addr,
       health_unlink_addr, utilities_unlink_addr, net_unlink_addr
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(employee_id) DO UPDATE SET
       employer_id            = excluded.employer_id,
       rate_per_period        = excluded.rate_per_period,
+      annual_salary          = excluded.annual_salary,
       taxes_bps              = excluded.taxes_bps,
       retirement_bps         = excluded.retirement_bps,
       health_bps             = excluded.health_bps,
@@ -173,7 +177,7 @@ export function upsertEmployee(config: Omit<EmployeeConfig, 'last_run_at' | 'nex
       utilities_unlink_addr  = excluded.utilities_unlink_addr,
       net_unlink_addr        = excluded.net_unlink_addr
   `).run(
-    config.employee_id, config.employer_id, config.rate_per_period,
+    config.employee_id, config.employer_id, config.rate_per_period, config.annual_salary ?? '0',
     config.taxes_bps, config.retirement_bps, config.health_bps, config.utilities_bps,
     config.cadence_seconds,
     config.last_run_at ?? 0,

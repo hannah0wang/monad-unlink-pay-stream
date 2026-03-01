@@ -15,7 +15,7 @@
  * After setup the employee never needs to interact — everything is automated.
  * x402 is used by the executor → biller (machine-to-machine), not here.
  */
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useUnlink } from '@unlink-xyz/react'
 import { useAccount } from 'wagmi'
 import { BUCKET, BUCKET_NAMES, BUCKET_COLORS, type BucketAddresses } from '@/lib/unlink'
@@ -50,9 +50,22 @@ const HEALTH_PLANS = [
   { id: 'family',     label: 'Family Plan',       premiumPct: 900, description: '~$900/mo employee contribution' },
 ]
 
+const BILLER_ICONS: Record<string, React.ReactNode> = {
+  electric: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>
+  ),
+  insurance: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  ),
+}
+
 const AVAILABLE_BILLERS = [
-  { id: 'electric',  label: 'City Electric & Gas',  amount: '$12.50/mo', icon: '⚡' },
-  { id: 'insurance', label: 'National Life Insurance', amount: '$89.00/mo', icon: '🏥' },
+  { id: 'electric',  label: 'City Electric & Gas',    amount: '$12.50/mo' },
+  { id: 'insurance', label: 'National Life Insurance', amount: '$89.00/mo' },
 ]
 
 const BILL_FREQUENCIES = [
@@ -189,6 +202,8 @@ export default function SetupPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Registration failed')
 
+      // Save employee ID so dashboard can load the right status without asking
+      localStorage.setItem('employeeId', String(employeeId))
       setStatus(`Registered! Payroll runs ${data.cadence} automatically.`)
       goTo('done')
     } catch (err: any) {
@@ -357,7 +372,7 @@ export default function SetupPage() {
               />
               <span className="text-white font-medium w-12 text-right">{retirementPct}%</span>
             </div>
-            <div className="text-xs text-gray-500 mt-1">{retirementPct * 100} bps withheld per paycheck</div>
+            <div className="text-xs text-gray-500 mt-1">{retirementPct}% of each paycheck</div>
           </div>
 
           <div className="mb-5">
@@ -413,7 +428,10 @@ export default function SetupPage() {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
-                      <span className="text-xl">{biller.icon}</span>
+                      <span className="w-8 h-8 rounded-lg flex items-center justify-center"
+                        style={{ background: selected ? 'rgba(131,110,249,0.15)' : '#1C2035', color: selected ? '#836EF9' : '#64748B' }}>
+                        {BILLER_ICONS[biller.id]}
+                      </span>
                       <div>
                         <div className="text-white text-sm font-medium">{biller.label}</div>
                         <div className="text-gray-500 text-xs">{biller.amount}</div>
@@ -493,11 +511,7 @@ export default function SetupPage() {
             ))}
           </div>
 
-          <div className="mb-4 p-3 bg-[#14141F] border border-[#2A2A3A] rounded-lg text-xs text-gray-400">
-            A small service fee is withheld automatically from each pay cycle — no upfront cost.
-          </div>
-
-          <button
+<button
             onClick={handleActivate}
             disabled={loading}
             className="w-full py-3 bg-[#836EF9] text-white rounded-xl font-medium hover:bg-[#6B52E0] disabled:opacity-50 transition-colors"

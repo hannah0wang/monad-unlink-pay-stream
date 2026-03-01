@@ -1,263 +1,450 @@
 'use client'
 
-/**
- * /employer — Employer payroll management
- *
- * Actions:
- *   1. Register an employee (rate + cadence) on PayrollManager
- *      — no Unlink address on-chain; employee registers their Unlink wallet
- *        separately with the executor via /setup
- *   2. Fund payroll (approve USDCm + fundPayroll) on PayrollManager
- *   3. View current payroll balance
- *
- * After registering on-chain, give the employeeId to your employee.
- * They enter it during /setup to link their Unlink wallet to this payroll slot.
- */
-import { useState } from 'react'
-import { useAccount, useWriteContract, useReadContract } from 'wagmi'
-import { parseUnits } from 'viem'
-import {
-  PAYROLL_MANAGER_ADDRESS,
-  PAYROLL_MANAGER_ABI,
-  USDC_ADDRESS,
-  USDC_ABI,
-  formatUsdc,
-  parseUsdc,
-} from '@/lib/contracts'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import Link from 'next/link'
+import { useAccount } from 'wagmi'
+import { EXECUTOR_URL } from '@/lib/contracts'
 
-const PERIOD_OPTIONS = [
-  { label: 'Hourly',  value: 3600 },
-  { label: 'Daily',   value: 86400 },
-  { label: 'Weekly',  value: 604800 },
-  { label: 'Monthly', value: 2592000 },
-]
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Employee {
+  code:          string   // 6-digit
+  name:          string
+  email:         string
+  annualSalary:  string   // USDCm/year
+  registeredAt:  number   // unix ms
+}
+
+function randCode() { return String(Math.floor(100000 + Math.random() * 900000)) }
+
+const STORAGE_KEY = 'employer:employees'
+
+function loadEmployees(): Employee[] {
+  if (typeof window === 'undefined') return []
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') } catch { return [] }
+}
+function saveEmployees(list: Employee[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
+}
+
+// ─── Chart modal ──────────────────────────────────────────────────────────────
+
+function ChartModal({ name, annualSalary, onClose }: { name: string; annualSalary: string; onClose: () => void }) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [hover, setHover] = useState<{ x: number; pct: number } | null>(null)
+
+  const salary = parseFloat(annualSalary || '0')
+  const W = 540, H = 260, PAD = { t: 20, r: 16, b: 48, l: 64 }
+  const cW = W - PAD.l - PAD.r
+  const cH = H - PAD.t - PAD.b
+
+  const months = Array.from({ length: 13 }, (_, i) => {
+    const d = new Date(); d.setMonth(d.getMonth() + i)
+    return { label: d.toLocaleDateString('en-US', { month: 'short' }), x: PAD.l + (i / 12) * cW }
+  })
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ v: salary * f, y: PAD.t + cH * (1 - f) }))
+  const area = `M${PAD.l} ${PAD.t + cH} L${PAD.l + cW} ${PAD.t} L${PAD.l + cW} ${PAD.t + cH}Z`
+  const line = `M${PAD.l} ${PAD.t + cH} L${PAD.l + cW} ${PAD.t}`
+
+  const onMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const r = svgRef.current?.getBoundingClientRect()
+    if (!r) return
+    const pct = Math.max(0, Math.min(1, (e.clientX - r.left - PAD.l) / cW))
+    setHover({ x: PAD.l + pct * cW, pct })
+  }, [cW])
+
+  const hoverEarned = hover ? salary * hover.pct : null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.75)' }} onClick={onClose}>
+      <div className="rounded-2xl p-8 w-[820px] max-w-full" style={{ background: '#0D1117', border: '1px solid #1C2035' }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <h2 className="text-white font-semibold text-lg">Simulation</h2>
+            <span className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(131,110,249,0.1)', color: '#836EF9', border: '1px solid rgba(131,110,249,0.2)' }}>
+              12-month earnings projection
+            </span>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white text-xl leading-none">×</button>
+        </div>
+
+        <div className="flex gap-8">
+          <svg ref={svgRef} width={W} height={H} className="cursor-crosshair shrink-0" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+            <defs>
+              <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#836EF9" stopOpacity=".25"/>
+                <stop offset="100%" stopColor="#836EF9" stopOpacity=".02"/>
+              </linearGradient>
+            </defs>
+            {yTicks.map(({ v, y }) => (
+              <g key={v}>
+                <line x1={PAD.l} y1={y} x2={PAD.l + cW} y2={y} stroke="#1C2035" strokeWidth={1}/>
+                <text x={PAD.l - 8} y={y + 4} textAnchor="end" fill="#475569" fontSize={10}>
+                  {v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v.toFixed(0)}
+                </text>
+              </g>
+            ))}
+            {months.filter((_, i) => i % 3 === 0).map(({ label, x }) => (
+              <text key={label} x={x} y={H - 8} textAnchor="middle" fill="#475569" fontSize={10}>{label}</text>
+            ))}
+            <path d={area} fill="url(#g)"/>
+            <path d={line} stroke="#836EF9" strokeWidth={2} fill="none"/>
+            {hover && (
+              <>
+                <line x1={hover.x} y1={PAD.t} x2={hover.x} y2={PAD.t + cH} stroke="#836EF9" strokeWidth={1} strokeDasharray="4 3"/>
+                <circle cx={hover.x} cy={PAD.t + cH * (1 - hover.pct)} r={4} fill="#836EF9"/>
+              </>
+            )}
+          </svg>
+
+          <div className="flex-1 flex flex-col gap-4 pt-2">
+            <div>
+              <div className="text-slate-500 text-xs mb-1">{name || 'Employee'}</div>
+              <div className="text-white font-bold text-3xl">
+                {hoverEarned != null ? hoverEarned.toLocaleString('en-US', { maximumFractionDigits: 0 }) : salary.toLocaleString()}
+              </div>
+              <div className="text-slate-500 text-xs mt-0.5">USDCm {hoverEarned != null ? 'earned by hover date' : 'annually'}</div>
+            </div>
+            <div className="h-px" style={{ background: '#1C2035' }}/>
+            <div className="space-y-2 text-sm">
+              {[
+                ['Per day',    (salary / 365).toFixed(2)],
+                ['Per hour',   (salary / 8760).toFixed(4)],
+                ['Per second', (salary / 31_557_600).toFixed(8)],
+              ].map(([label, val]) => (
+                <div key={label} className="flex justify-between">
+                  <span className="text-slate-500">{label}</span>
+                  <span className="text-white font-mono text-xs">{val} USDCm</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── CSV panel ────────────────────────────────────────────────────────────────
+
+function CsvPanel({ onImport }: { onImport: (rows: Employee[]) => void }) {
+  const [dragging, setDragging] = useState(false)
+  const [parsed, setParsed]     = useState<Employee[] | null>(null)
+
+  function parseCSV(text: string) {
+    const lines = text.trim().split('\n').filter(l => l.trim())
+    const start = isNaN(Number(lines[0]?.split(',')[0])) ? 1 : 0
+    const rows: Employee[] = lines.slice(start).map(line => {
+      const [name, email, salary] = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''))
+      return { code: randCode(), name: name ?? '', email: email ?? '', annualSalary: salary ?? '52000', registeredAt: Date.now() }
+    }).filter(r => r.name)
+    setParsed(rows)
+  }
+
+  function handleFile(file: File) {
+    const reader = new FileReader()
+    reader.onload = e => parseCSV(e.target?.result as string)
+    reader.readAsText(file)
+  }
+
+  return (
+    <div className="max-w-lg">
+      {/* Drop zone */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]) }}
+        onClick={() => document.getElementById('csv-file')?.click()}
+        className="rounded-2xl p-10 text-center cursor-pointer transition-all mb-3"
+        style={{ border: `2px dashed ${dragging ? '#836EF9' : '#1C2035'}`, background: dragging ? 'rgba(131,110,249,0.05)' : '#0D1117' }}>
+        <input id="csv-file" type="file" accept=".csv,.txt" className="hidden"
+          onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+        <svg className="mx-auto mb-3" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <div className="text-slate-300 text-sm mb-1">Drop CSV file here</div>
+        <div className="text-slate-600 text-xs">or click to browse</div>
+      </div>
+
+      {/* Format hint */}
+      <div className="text-xs text-slate-600 mb-5">
+        Format: <code className="text-slate-400">name, email, annual_salary</code> — one row per employee, header optional.
+      </div>
+
+      {parsed && (
+        <div>
+          <div className="mb-3 p-3 rounded-xl text-sm text-green-400"
+            style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)' }}>
+            {parsed.length} employee{parsed.length !== 1 ? 's' : ''} ready to import
+          </div>
+          <div className="rounded-xl overflow-hidden mb-4" style={{ border: '1px solid #1C2035' }}>
+            <table className="w-full text-xs" style={{ background: '#0D1117' }}>
+              <thead><tr style={{ borderBottom: '1px solid #1C2035' }}>
+                {['Name', 'Email', 'Salary / yr', 'Code'].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-slate-500">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {parsed.slice(0, 5).map((e, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #1C2035' }}>
+                    <td className="px-4 py-2.5 text-white">{e.name}</td>
+                    <td className="px-4 py-2.5 text-slate-400">{e.email || '—'}</td>
+                    <td className="px-4 py-2.5 text-white">{parseFloat(e.annualSalary).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 font-mono text-[#836EF9] tracking-widest">{e.code}</td>
+                  </tr>
+                ))}
+                {parsed.length > 5 && (
+                  <tr><td colSpan={4} className="px-4 py-2 text-slate-600 text-center text-xs">+{parsed.length - 5} more</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={() => onImport(parsed)}
+            className="w-full py-3 rounded-xl font-medium text-white text-sm transition-all hover:opacity-90"
+            style={{ background: '#836EF9' }}>
+            Import {parsed.length} Employee{parsed.length !== 1 ? 's' : ''} →
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function EmployerPage() {
   const { address } = useAccount()
-  const { writeContractAsync } = useWriteContract()
 
-  // Generate a random 6-digit employee code (100000–999999)
-  const [employeeCode] = useState(() => Math.floor(100000 + Math.random() * 900000))
+  const [tab, setTab]       = useState<'add' | 'roster' | 'csv'>('add')
+  const [employees, setEmployees] = useState<Employee[]>(loadEmployees)
+  const [search, setSearch] = useState('')
+  const [chartEmp, setChartEmp] = useState<Employee | null>(null)
 
-  // Register employee form
-  const [rate, setRate]             = useState('100')   // USDCm per period
-  const [period, setPeriod]         = useState(86400)
-  const [regStatus, setRegStatus]   = useState<string | null>(null)
-  const [regLoading, setRegLoading] = useState(false)
-  const [lastEmployeeId, setLastEmployeeId] = useState<number | null>(null)
+  // Add employee form
+  const [form, setForm] = useState({ name: '', email: '', annualSalary: '52000' })
+  const [code, setCode] = useState('------')
+  useEffect(() => { setCode(randCode()) }, [])
+  const [adding, setAdding]   = useState(false)
+  const [addMsg, setAddMsg]   = useState<{ ok: boolean; text: string } | null>(null)
 
-  // Fund payroll form
-  const [fundAmount, setFundAmount]   = useState('1000')
-  const [fundStatus, setFundStatus]   = useState<string | null>(null)
-  const [fundLoading, setFundLoading] = useState(false)
+  const salary = parseFloat(form.annualSalary || '0')
 
-  // On-chain data
-  const { data: payrollBalance, refetch: refetchBalance } = useReadContract({
-    address: PAYROLL_MANAGER_ADDRESS,
-    abi: PAYROLL_MANAGER_ABI,
-    functionName: 'payrollBalance',
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  })
-
-  const { data: usdcBalance } = useReadContract({
-    address: USDC_ADDRESS,
-    abi: USDC_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  })
-
-// ── Register employee ──────────────────────────────────────────────────────
-  async function handleRegister() {
-    if (!address) return
-    setRegLoading(true)
-    setRegStatus('Registering employee...')
+  async function handleAdd() {
+    if (!form.name.trim() || !form.annualSalary) { setAddMsg({ ok: false, text: 'Name and salary are required.' }); return }
+    setAdding(true); setAddMsg(null)
     try {
-      const ratePerPeriod = parseUsdc(rate)
-      const tx = await writeContractAsync({
-        address: PAYROLL_MANAGER_ADDRESS,
-        abi: PAYROLL_MANAGER_ABI,
-        functionName: 'registerEmployee',
-        args: [ratePerPeriod, BigInt(period)],
-      })
-      setLastEmployeeId(employeeCode)
-      setRegStatus(`✅ Registered! Employee code: ${employeeCode} — share this with your employee`)
+      const annualSalaryBase = (BigInt(Math.round(salary * 1e18))).toString()
+      await fetch(`${EXECUTOR_URL}/employer/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mnemonic: '', masterUnlinkAddr: '',
+          employees: [{ employeeId: parseInt(code), annualSalary: annualSalaryBase }],
+        }),
+      }).catch(() => {})
+
+      const emp: Employee = { code, name: form.name.trim(), email: form.email.trim(), annualSalary: form.annualSalary, registeredAt: Date.now() }
+      const updated = [...employees, emp]
+      setEmployees(updated)
+      saveEmployees(updated)
+      setAddMsg({ ok: true, text: `Registered! Share code ${code} with ${form.name}.` })
+      setForm({ name: '', email: '', annualSalary: '52000' })
     } catch (err: any) {
-      setRegStatus(`❌ ${err.shortMessage ?? err.message}`)
+      setAddMsg({ ok: false, text: err.message ?? 'Registration failed' })
     } finally {
-      setRegLoading(false)
+      setAdding(false)
     }
   }
 
-  // ── Fund payroll ───────────────────────────────────────────────────────────
-  async function handleFundPayroll() {
-    if (!address) return
-    setFundLoading(true)
-    setFundStatus('Approving USDC...')
-    try {
-      const amount = parseUsdc(fundAmount)
-
-      // 1. Approve USDC to PayrollManager
-      const approveTx = await writeContractAsync({
-        address: USDC_ADDRESS,
-        abi: USDC_ABI,
-        functionName: 'approve',
-        args: [PAYROLL_MANAGER_ADDRESS, amount],
-      })
-      setFundStatus('Approval sent, funding payroll...')
-
-      // 2. Fund payroll
-      const fundTx = await writeContractAsync({
-        address: PAYROLL_MANAGER_ADDRESS,
-        abi: PAYROLL_MANAGER_ABI,
-        functionName: 'fundPayroll',
-        args: [amount],
-      })
-
-      await refetchBalance()
-      setFundStatus(`✅ Payroll funded: ${fundAmount} USDC. tx: ${fundTx.slice(0, 18)}...`)
-    } catch (err: any) {
-      setFundStatus(`❌ ${err.shortMessage ?? err.message}`)
-    } finally {
-      setFundLoading(false)
-    }
-  }
-
-  const periodLabel = PERIOD_OPTIONS.find(o => o.value === period)?.label ?? 'Custom'
+  const filtered = employees.filter(e =>
+    !search || [e.name, e.email, e.code].some(v => v.toLowerCase().includes(search.toLowerCase()))
+  )
 
   return (
-    <div className="max-w-2xl mx-auto p-8">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Employer Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-1">Register employees and fund payroll via PayrollManager</p>
-        </div>
-        <a
-          href="https://faucet.circle.com"
-          target="_blank"
-          rel="noreferrer"
-          className="px-3 py-1.5 text-xs border border-[#2A2A3A] text-gray-400 rounded-lg hover:bg-[#2A2A3A] transition-colors"
-        >
-          Get USDC ↗
-        </a>
-      </div>
+    <div style={{ background: '#060914', minHeight: '100vh' }}>
+      <div className="max-w-4xl mx-auto px-6 py-8">
 
-      {/* Balance summary */}
-      <div className="grid grid-cols-2 gap-4 mb-8">
-        <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-4">
-          <div className="text-xs text-gray-500 mb-1">Payroll Balance (locked)</div>
-          <div className="text-white font-bold text-xl">
-            {payrollBalance !== undefined ? formatUsdc(payrollBalance) : '—'} USDC
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+            <Link href="/" className="hover:text-white transition-colors">Payroll</Link>
+            <span>›</span>
+            <span>Employer</span>
           </div>
-          <div className="text-xs text-gray-600 mt-0.5">Available in PayrollManager</div>
-        </div>
-        <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-4">
-          <div className="text-xs text-gray-500 mb-1">Wallet USDC</div>
-          <div className="text-white font-bold text-xl">
-            {usdcBalance !== undefined ? formatUsdc(usdcBalance) : '—'} USDC
-          </div>
-          <div className="text-xs text-gray-600 mt-0.5">Available to fund</div>
-        </div>
-      </div>
-
-      {/* Register employee */}
-      <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6 mb-4">
-        <h2 className="text-white font-medium mb-1">Register Employee</h2>
-        <p className="text-gray-500 text-xs mb-4">
-          Set the pay rate and cadence. Share the Employee ID with your employee after registering so they can complete their setup.
-        </p>
-
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Rate per Period (USDC)</label>
-            <input
-              type="number"
-              value={rate}
-              onChange={e => setRate(e.target.value)}
-              className="w-full bg-[#0E0E16] border border-[#2A2A3A] rounded-lg px-3 py-2 text-white text-sm focus:border-[#836EF9] outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Pay Cadence</label>
-            <select
-              value={period}
-              onChange={e => setPeriod(parseInt(e.target.value))}
-              className="w-full bg-[#0E0E16] border border-[#2A2A3A] rounded-lg px-3 py-2 text-white text-sm focus:border-[#836EF9] outline-none"
-            >
-              {PERIOD_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+          <h1 className="text-2xl font-bold text-white">Payroll Management</h1>
         </div>
 
-        <div className="p-3 bg-[#0E0E16] rounded-lg text-xs text-gray-500 mb-4">
-          {rate} USDC every {periodLabel.toLowerCase()} →{' '}
-          {((parseFloat(rate) / period) * 86400).toFixed(2)} USDC/day
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 p-1 rounded-xl w-fit" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+          {([['add', 'Add Employee'], ['roster', `Roster (${employees.length})`], ['csv', 'Upload CSV']] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)}
+              className="px-5 py-2 rounded-lg text-sm font-medium transition-all"
+              style={tab === key ? { background: '#836EF9', color: 'white' } : { color: '#64748B' }}>
+              {label}
+            </button>
+          ))}
         </div>
 
-        <button
-          onClick={handleRegister}
-          disabled={regLoading || !address}
-          className="w-full py-2.5 bg-[#836EF9] text-white rounded-xl text-sm font-medium hover:bg-[#6B52E0] disabled:opacity-50 transition-colors"
-        >
-          {regLoading ? 'Registering...' : 'Register Employee On-Chain'}
-        </button>
+        {/* ── Add Employee tab ── */}
+        {tab === 'add' && (
+          <div className="flex gap-6 items-start">
+            {/* Form */}
+            <div className="flex-1 rounded-2xl p-6" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+              <h2 className="text-white font-semibold mb-5">Employee Details</h2>
 
-        {regStatus && (
-          <div className="mt-3 p-2 text-xs text-gray-300 bg-[#0E0E16] rounded-lg">{regStatus}</div>
-        )}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-2">Full name</label>
+                  <input value={form.name} onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setAddMsg(null) }}
+                    placeholder="Jane Smith"
+                    className="w-full rounded-xl px-4 py-3 text-white text-sm outline-none"
+                    style={{ background: '#060914', border: '1px solid #1C2035' }}
+                    onFocus={e => e.currentTarget.style.borderColor = '#836EF9'}
+                    onBlur={e => e.currentTarget.style.borderColor = '#1C2035'} />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-2">Email</label>
+                  <input value={form.email} onChange={e => { setForm(f => ({ ...f, email: e.target.value })); setAddMsg(null) }}
+                    placeholder="jane@company.com" type="email"
+                    className="w-full rounded-xl px-4 py-3 text-white text-sm outline-none"
+                    style={{ background: '#060914', border: '1px solid #1C2035' }}
+                    onFocus={e => e.currentTarget.style.borderColor = '#836EF9'}
+                    onBlur={e => e.currentTarget.style.borderColor = '#1C2035'} />
+                </div>
+              </div>
 
-        {lastEmployeeId !== null && (
-          <div className="mt-3 p-3 bg-green-400/10 border border-green-400/20 rounded-lg">
-            <div className="text-xs text-green-400 mb-1">Employee code</div>
-            <div className="text-white font-mono font-bold text-2xl tracking-widest">{lastEmployeeId}</div>
-            <div className="text-xs text-gray-500 mt-1">
-              Share this 6-digit code with your employee — they'll enter it during setup.
+              <div className="mb-4">
+                <label className="block text-xs text-slate-500 mb-2">Annual salary (USDCm)</label>
+                <input value={form.annualSalary} onChange={e => { setForm(f => ({ ...f, annualSalary: e.target.value })); setAddMsg(null) }}
+                  type="number" placeholder="52000"
+                  className="w-full rounded-xl px-4 py-3 text-white text-sm outline-none"
+                  style={{ background: '#060914', border: '1px solid #1C2035' }}
+                  onFocus={e => e.currentTarget.style.borderColor = '#836EF9'}
+                  onBlur={e => e.currentTarget.style.borderColor = '#1C2035'} />
+                {salary > 0 && (
+                  <div className="flex gap-4 mt-2 text-xs text-slate-500">
+                    <span>≈ {(salary / 365).toFixed(2)} USDCm/day</span>
+                    <span>≈ {(salary / 8760).toFixed(4)} USDCm/hr</span>
+                  </div>
+                )}
+              </div>
+
+              <button onClick={handleAdd} disabled={adding || !address}
+                className="w-full py-3 rounded-xl font-medium text-white text-sm transition-all hover:opacity-90 disabled:opacity-50"
+                style={{ background: '#836EF9' }}>
+                {adding ? 'Registering...' : 'Add Employee'}
+              </button>
+
+              {!address && <div className="mt-2 text-xs text-center text-slate-600">Connect wallet to register</div>}
+
+              {addMsg && (
+                <div className="mt-3 p-3 rounded-xl text-xs" style={{
+                  background: addMsg.ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                  border: `1px solid ${addMsg.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                  color: addMsg.ok ? '#4ade80' : '#f87171',
+                }}>
+                  {addMsg.text}
+                </div>
+              )}
+            </div>
+
+            {/* Code card */}
+            <div className="w-64 shrink-0">
+              <div className="rounded-2xl p-5 mb-4" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+                <div className="text-xs text-slate-500 mb-2">Employee code</div>
+                <div className="text-white font-mono font-bold text-3xl tracking-widest mb-1">{code}</div>
+                <div className="text-xs text-slate-600">Auto-generated · share with employee after registering</div>
+              </div>
+
+              {salary > 0 && (
+                <button onClick={() => setChartEmp({ code, name: form.name || 'Employee', email: form.email, annualSalary: form.annualSalary, registeredAt: 0 })}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm transition-all hover:opacity-80"
+                  style={{ background: '#0D1117', border: '1px solid #1C2035', color: '#836EF9' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  </svg>
+                  Preview earnings chart
+                </button>
+              )}
             </div>
           </div>
         )}
-      </div>
 
-      {/* Fund payroll */}
-      <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6">
-        <h2 className="text-white font-medium mb-4">Fund Payroll</h2>
-        <p className="text-gray-500 text-sm mb-4">
-          Add funds to the payroll pool. The system automatically distributes wages to each employee on their scheduled pay date.
-        </p>
+        {/* ── Roster tab ── */}
+        {tab === 'roster' && (
+          <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid #1C2035' }}>
+            {/* Search bar */}
+            <div className="p-4" style={{ background: '#0D1117', borderBottom: '1px solid #1C2035' }}>
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search by name, email or code..."
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl text-white text-sm outline-none"
+                  style={{ background: '#060914', border: '1px solid #1C2035' }}
+                  onFocus={e => e.currentTarget.style.borderColor = '#836EF9'}
+                  onBlur={e => e.currentTarget.style.borderColor = '#1C2035'} />
+              </div>
+            </div>
 
-        <div className="flex gap-3 mb-4">
-          <div className="flex-1">
-            <label className="block text-xs text-gray-500 mb-1">Amount (USDC)</label>
-            <input
-              type="number"
-              value={fundAmount}
-              onChange={e => setFundAmount(e.target.value)}
-              className="w-full bg-[#0E0E16] border border-[#2A2A3A] rounded-lg px-3 py-2 text-white text-sm focus:border-[#836EF9] outline-none"
-            />
+            {/* Table */}
+            <table className="w-full text-sm" style={{ background: '#0D1117' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #1C2035' }}>
+                  {['Name', 'Email', 'Code', 'Annual Salary', '/ Day', 'Added'].map(h => (
+                    <th key={h} className="px-5 py-3 text-left text-xs font-medium text-slate-500">{h}</th>
+                  ))}
+                  <th className="px-5 py-3"/>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr><td colSpan={7} className="px-5 py-12 text-center text-slate-600 text-sm">
+                    {employees.length === 0 ? 'No employees yet — add one in the Add Employee tab.' : 'No results for your search.'}
+                  </td></tr>
+                ) : filtered.map(emp => (
+                  <tr key={emp.code} style={{ borderBottom: '1px solid #1C2035' }}
+                    className="hover:bg-white/[0.02] transition-colors">
+                    <td className="px-5 py-4 text-white font-medium">{emp.name}</td>
+                    <td className="px-5 py-4 text-slate-400">{emp.email || '—'}</td>
+                    <td className="px-5 py-4 font-mono text-[#836EF9] tracking-widest">{emp.code}</td>
+                    <td className="px-5 py-4 text-white">{parseFloat(emp.annualSalary).toLocaleString()} USDCm</td>
+                    <td className="px-5 py-4 text-slate-400">{(parseFloat(emp.annualSalary) / 365).toFixed(2)}</td>
+                    <td className="px-5 py-4 text-slate-500 text-xs">{new Date(emp.registeredAt).toLocaleDateString()}</td>
+                    <td className="px-5 py-4">
+                      <button onClick={() => setChartEmp(emp)}
+                        className="flex items-center gap-1 text-xs hover:opacity-80 transition-opacity"
+                        style={{ color: '#836EF9' }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                        </svg>
+                        Chart
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-
-        <button
-          onClick={handleFundPayroll}
-          disabled={fundLoading || !address}
-          className="w-full py-2.5 bg-[#836EF9] text-white rounded-xl text-sm font-medium hover:bg-[#6B52E0] disabled:opacity-50 transition-colors"
-        >
-          {fundLoading ? 'Processing...' : `Add ${fundAmount} USDC to Payroll Pool`}
-        </button>
-
-        {fundStatus && (
-          <div className="mt-3 p-2 text-xs text-gray-300 bg-[#0E0E16] rounded-lg">{fundStatus}</div>
         )}
+
+        {/* ── CSV tab ── */}
+        {tab === 'csv' && (
+          <CsvPanel onImport={(rows) => {
+            const updated = [...employees, ...rows]
+            setEmployees(updated)
+            saveEmployees(updated)
+            setTab('roster')
+          }} />
+        )}
+
       </div>
 
-      {/* Privacy note */}
-      <div className="mt-4 p-4 bg-[#836EF9]/5 border border-[#836EF9]/20 rounded-xl">
-        <div className="text-xs text-gray-400">
-          <span className="text-[#836EF9] font-medium">Employee Privacy:</span> Salary amounts and spending are fully encrypted. Employees see their own accounts — nothing is visible to other parties.
-        </div>
-      </div>
+      {/* Chart modal */}
+      {chartEmp && <ChartModal name={chartEmp.name} annualSalary={chartEmp.annualSalary} onClose={() => setChartEmp(null)} />}
     </div>
   )
 }
