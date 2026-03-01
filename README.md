@@ -1,5 +1,13 @@
 # Payroll Ninja
 
+<img width="842" height="829" alt="image" src="https://github.com/user-attachments/assets/3d542c68-39a6-4358-94bd-e2dc980fa652" />
+
+<img width="842" height="752" alt="image" src="https://github.com/user-attachments/assets/fd8d63fd-6f6c-472e-a16f-fe577ec7d312" />
+
+<img width="842" height="617" alt="image" src="https://github.com/user-attachments/assets/b0d32f91-e77b-46be-9b07-0aa7a870c905" />
+
+
+
 **Private, real-time streaming payroll on Monad via Unlink.**
 
 Wages stream continuously into dedicated ZK-private buckets — taxes, retirement, health, utilities, take-home — all invisible on-chain. Bills pay themselves. The employer's identity and payroll amounts are fully private after a single lump-sum deposit.
