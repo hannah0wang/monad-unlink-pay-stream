@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { useUnlink } from '@unlink-xyz/react'
 import { BUCKET, BUCKET_NAMES, BUCKET_COLORS, type BucketKey } from '@/lib/unlink'
