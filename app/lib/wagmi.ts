@@ -16,7 +16,7 @@ export const monadTestnet = defineChain({
 })
 
 export const wagmiConfig = getDefaultConfig({
-  appName: 'Private MoneyOps',
+  appName: 'Payroll Ninja',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo-project-id',
   chains: [monadTestnet],
   ssr: true,

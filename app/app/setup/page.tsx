@@ -15,7 +15,7 @@
  * After setup the employee never needs to interact — everything is automated.
  * x402 is used by the executor → biller (machine-to-machine), not here.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useUnlink } from '@unlink-xyz/react'
 import { useAccount } from 'wagmi'
 import { BUCKET, BUCKET_NAMES, BUCKET_COLORS, type BucketAddresses } from '@/lib/unlink'
@@ -23,16 +23,15 @@ import { EXECUTOR_URL } from '@/lib/contracts'
 import { STATE_TAX_RATES, FEDERAL_WITHHOLDING_PCT, taxBpsForState } from '@/lib/tax-rates'
 import Link from 'next/link'
 
-type Tab = 'wallet' | 'accounts' | 'cadence' | 'benefits' | 'bills' | 'activate' | 'done'
+type Tab = 'accounts' | 'cadence' | 'benefits' | 'bills' | 'activate' | 'done'
 
-const TABS: Tab[] = ['wallet', 'accounts', 'cadence', 'benefits', 'bills', 'activate', 'done']
+const TABS: Tab[] = ['accounts', 'cadence', 'benefits', 'bills', 'activate', 'done']
 const TAB_LABELS: Record<Tab, string> = {
-  wallet:   'Wallet',
   accounts: 'Accounts',
   cadence:  'Cadence',
   benefits: 'Benefits',
   bills:    'Bills',
-  activate: 'Activate',
+  activate: 'Register',
   done:     'Done',
 }
 
@@ -64,9 +63,9 @@ const BILL_FREQUENCIES = [
 
 export default function SetupPage() {
   const { isConnected } = useAccount()
-  const { ready, walletExists, createWallet, createAccount } = useUnlink()
+  const { ready, walletExists, createWallet, createAccount, accounts } = useUnlink() as any
 
-  const [tab, setTab]               = useState<Tab>('wallet')
+  const [tab, setTab]               = useState<Tab>('accounts')
   const [mnemonic, setMnemonic]     = useState('')
   const [loading, setLoading]       = useState(false)
   const [status, setStatus]         = useState<string | null>(null)
@@ -88,6 +87,15 @@ export default function SetupPage() {
   const [selectedBills, setSelectedBills] = useState<
     Array<{ billerId: string; frequencySeconds: number }>
   >([])
+
+  // Auto-create wallet on mount — no button needed, user doesn't need to manage the mnemonic
+  // (it's sent to the executor at registration and stored server-side)
+  useEffect(() => {
+    if (!ready) return
+    createWallet()
+      .then(result => setMnemonic(result.mnemonic))
+      .catch(() => {}) // already exists — mnemonic already in storage, move on
+  }, [ready])
 
   // ── Derived bps ────────────────────────────────────────────────────────────
   const retirementBps = retirementPct * 100
@@ -115,24 +123,7 @@ export default function SetupPage() {
     )
   }
 
-  // ── Step 1: Create wallet ──────────────────────────────────────────────────
-  async function handleCreateWallet() {
-    setLoading(true)
-    setStatus('Creating your secure wallet...')
-    try {
-      // createWallet() → { mnemonic: string } per Unlink React SDK docs
-      const result = await createWallet()
-      setMnemonic(result.mnemonic)
-      setStatus('Wallet created.')
-      goTo('accounts')
-    } catch (err: any) {
-      setStatus(`Error: ${err.message}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ── Step 2: Create 6 bucket accounts ─────────────────────────────────────
+  // ── Step 1: Create 6 bucket accounts ─────────────────────────────────────
   async function handleCreateAccounts() {
     setLoading(true)
     const addrs: Partial<BucketAddresses> = {}
@@ -140,10 +131,29 @@ export default function SetupPage() {
       const keys = Object.keys(BUCKET) as (keyof typeof BUCKET)[]
       for (let i = 0; i < keys.length; i++) {
         const key = keys[i]
-        setStatus(`Creating ${BUCKET_NAMES[key]} account (${i + 1}/${keys.length})...`)
-        // createAccount(index) → Account with .address = "unlink1..." per Unlink React SDK docs
-        const account = await createAccount(BUCKET[key])
-        const addr = (account as any).address as string
+        const idx = BUCKET[key]
+        setStatus(`Setting up ${BUCKET_NAMES[key]} account (${i + 1}/${keys.length})...`)
+
+        // Use existing account if already created, otherwise create it
+        const existing = Array.isArray(accounts)
+          ? accounts.find((a: any) => a.index === idx)
+          : null
+
+        let addr: string
+        if (existing?.address) {
+          addr = existing.address
+        } else {
+          try {
+            const account = await createAccount(idx)
+            addr = (account as any).address as string
+          } catch (e: any) {
+            // Account already exists at this index — get it from the accounts list
+            const refreshed = Array.isArray(accounts)
+              ? accounts.find((a: any) => a.index === idx)
+              : null
+            addr = refreshed?.address ?? ''
+          }
+        }
         addrs[key.toLowerCase() as keyof BucketAddresses] = addr
       }
       setBucketAddrs(addrs)
@@ -204,7 +214,7 @@ export default function SetupPage() {
     <div className="max-w-xl mx-auto p-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white">Employee Setup</h1>
-        <p className="text-gray-500 text-sm mt-1">Configure once — payroll runs automatically forever.</p>
+        <p className="text-gray-500 text-sm mt-1">Configure once and let payroll run automatically.</p>
       </div>
 
       {/* Tab bar */}
@@ -225,30 +235,7 @@ export default function SetupPage() {
         ))}
       </div>
 
-      {/* ── Tab 1: Wallet ── */}
-      {tab === 'wallet' && (
-        <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6">
-          <h2 className="text-white font-medium mb-2">Create Your Secure Wallet</h2>
-          <p className="text-gray-400 text-sm mb-5">
-            Your wallet holds 6 dedicated spending accounts. Once set up, your paycheck routes
-            automatically every cycle — you only do this once.
-          </p>
-          {walletExists && (
-            <div className="mb-4 p-3 bg-green-400/10 border border-green-400/20 rounded-lg text-green-400 text-sm">
-              Wallet already exists — continuing with existing wallet.
-            </div>
-          )}
-          <button
-            onClick={walletExists ? () => goTo('accounts') : handleCreateWallet}
-            disabled={loading || !ready}
-            className="w-full py-3 bg-[#836EF9] text-white rounded-xl font-medium hover:bg-[#6B52E0] disabled:opacity-50 transition-colors"
-          >
-            {loading ? 'Creating...' : walletExists ? 'Continue →' : 'Create Wallet'}
-          </button>
-        </div>
-      )}
-
-      {/* ── Tab 2: Accounts ── */}
+      {/* ── Tab 1: Accounts ── */}
       {tab === 'accounts' && (
         <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-6">
           <h2 className="text-white font-medium mb-2">Set Up Spending Accounts</h2>
@@ -271,8 +258,14 @@ export default function SetupPage() {
             disabled={loading}
             className="w-full py-3 bg-[#836EF9] text-white rounded-xl font-medium hover:bg-[#6B52E0] disabled:opacity-50 transition-colors"
           >
-            {loading ? status ?? 'Creating...' : 'Create All 6 Accounts'}
+            {loading ? status ?? 'Setting up accounts...' : 'Set Up My Accounts'}
           </button>
+          <p className="text-center text-sm text-slate-500 mt-4">
+            Already have an account?{' '}
+            <Link href="/dashboard" className="font-medium hover:opacity-80 transition-opacity" style={{ color: '#836EF9' }}>
+              Sign in →
+            </Link>
+          </p>
         </div>
       )}
 

@@ -1,5 +1,5 @@
 /**
- * Unlink SDK helpers for Private HCM
+ * Unlink SDK helpers for Payroll Ninja
  *
  * Unlink provides ZK-private token transfers on Monad testnet.
  * Architecture:

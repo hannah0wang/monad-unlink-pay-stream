@@ -310,12 +310,12 @@ export default function DashboardPage() {
                         <div className="p-4 rounded-2xl" style={{ background: '#060914', border: '1px solid #1C2035' }}>
                           <div className="flex justify-between text-xs text-slate-500 mb-3">
                             <span>{formatTs(p.paid_at)}</span>
-                            <span className="text-white font-semibold">${formatUsdc(BigInt(p.gross))} gross</span>
+                            <span className="text-white font-semibold">${p.gross ? formatUsdc(BigInt(p.gross)) : '0.00'} gross</span>
                           </div>
                           <div className="grid grid-cols-3 gap-y-2.5 text-xs">
                             {[['Taxes', p.taxes], ['401(k)', p.retirement], ['Health', p.health],
-                              ['Utilities', p.utilities], ['Take-Home', p.net], ['Ops Fee', p.ops_fee],
-                            ].map(([l, v]) => (
+                              ['Utilities', p.utilities], ['Take-Home', p.net],
+                            ].filter(([, v]) => v != null).map(([l, v]) => (
                               <div key={l as string}>
                                 <div className="text-slate-600 mb-0.5">{l as string}</div>
                                 <div className="text-white font-medium">${formatUsdc(BigInt(v as string))}</div>
@@ -617,9 +617,9 @@ export default function DashboardPage() {
                   style={{ background: '#060914', border: '1px solid #1C2035' }}>
                   <span className="text-slate-500">{formatTs(p.paid_at)}</span>
                   <div className="flex gap-5 text-xs">
-                    <span className="text-slate-500">Gross <span className="text-white font-medium">${formatUsdc(BigInt(p.gross))}</span></span>
-                    <span className="text-slate-500">Net <span className="text-white font-medium">${formatUsdc(BigInt(p.net))}</span></span>
-                    <span className="text-slate-500">401k <span className="text-white font-medium">${formatUsdc(BigInt(p.retirement))}</span></span>
+                    <span className="text-slate-500">Gross <span className="text-white font-medium">${p.gross ? formatUsdc(BigInt(p.gross)) : '0.00'}</span></span>
+                    <span className="text-slate-500">Net <span className="text-white font-medium">${p.net ? formatUsdc(BigInt(p.net)) : '0.00'}</span></span>
+                    <span className="text-slate-500">401k <span className="text-white font-medium">${p.retirement ? formatUsdc(BigInt(p.retirement)) : '0.00'}</span></span>
                   </div>
                 </div>
               ))}

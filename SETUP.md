@@ -1,4 +1,4 @@
-# Private HCM — Setup Guide
+# Payroll Ninja — Setup Guide
 
 ## Architecture
 

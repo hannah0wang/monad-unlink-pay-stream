@@ -122,13 +122,15 @@ export const PAYROLL_MANAGER_ABI = [
 ] as const
 
 // ─── Formatting helpers ────────────────────────────────────────────────────────
+// USDCm has 18 decimals (not 6 like Circle USDC)
+const TOKEN_UNIT = 1_000_000_000_000_000_000n
+
 export function formatUsdc(amount: bigint): string {
-  return (Number(amount) / 1e6).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
+  const whole = amount / TOKEN_UNIT
+  const frac  = ((amount % TOKEN_UNIT) * 100n) / TOKEN_UNIT
+  return `${whole}.${frac.toString().padStart(2, '0')}`
 }
 
 export function parseUsdc(amount: string): bigint {
-  return BigInt(Math.round(parseFloat(amount) * 1e6))
+  return BigInt(Math.round(parseFloat(amount) * 1e18))
 }
