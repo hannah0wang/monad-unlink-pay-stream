@@ -59,9 +59,13 @@ export default function Home() {
           <Link href="/setup"
             className="group p-6 rounded-2xl text-left transition-all hover:scale-[1.02] flex flex-col"
             style={{ background: '#0D1117', border: '1px solid rgba(131,110,249,0.3)' }}>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-4"
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
               style={{ background: 'rgba(131,110,249,0.15)' }}>
-              👤
+              {/* Person icon */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#836EF9" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="4"/>
+                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+              </svg>
             </div>
             <div className="text-white font-semibold text-base mb-1">I'm an Employee</div>
             <div className="text-slate-500 text-sm leading-relaxed flex-1">
@@ -77,9 +81,16 @@ export default function Home() {
           <Link href="/employer"
             className="group p-6 rounded-2xl text-left transition-all hover:scale-[1.02] flex flex-col"
             style={{ background: '#0D1117', border: '1px solid rgba(34,197,94,0.25)' }}>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-4"
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
               style={{ background: 'rgba(34,197,94,0.1)' }}>
-              🏢
+              {/* Building icon */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="9" width="18" height="13" rx="1"/>
+                <path d="M8 22V9M16 22V9"/>
+                <path d="M3 9l9-6 9 6"/>
+                <rect x="9" y="14" width="2" height="3"/>
+                <rect x="13" y="14" width="2" height="3"/>
+              </svg>
             </div>
             <div className="text-white font-semibold text-base mb-1">I'm an Employer</div>
             <div className="text-slate-500 text-sm leading-relaxed flex-1">
@@ -96,29 +107,47 @@ export default function Home() {
       {/* Feature row */}
       <div className="border-t px-6 py-10" style={{ borderColor: '#1C2035' }}>
         <div className="max-w-3xl mx-auto grid grid-cols-3 gap-4">
-          {[
-            {
-              icon: '⚡',
-              title: 'Real-Time Streaming',
-              desc: 'Paid every hour or every cycle — not monthly. Access your earnings as you earn them.',
-            },
-            {
-              icon: '🎛️',
-              title: 'Fully Configurable',
-              desc: 'Set your own splits for taxes, 401k, health, bills. Change anytime.',
-            },
-            {
-              icon: '🔒',
-              title: 'ZK Private',
-              desc: 'Your salary, splits, and spending are invisible on-chain. Only you can see your accounts.',
-            },
-          ].map(f => (
-            <div key={f.title} className="p-5 rounded-2xl" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
-              <div className="text-2xl mb-3">{f.icon}</div>
-              <div className="text-sm font-semibold text-white mb-1.5">{f.title}</div>
-              <div className="text-xs text-slate-500 leading-relaxed">{f.desc}</div>
+
+          {/* Real-Time */}
+          <div className="p-5 rounded-2xl" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+            <div className="mb-3">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#836EF9" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <polyline points="12 7 12 12 15 15"/>
+              </svg>
             </div>
-          ))}
+            <div className="text-sm font-semibold text-white mb-1.5">Real-Time Streaming</div>
+            <div className="text-xs text-slate-500 leading-relaxed">Paid every hour or every cycle — not monthly. Access your earnings as you earn them.</div>
+          </div>
+
+          {/* Configurable */}
+          <div className="p-5 rounded-2xl" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+            <div className="mb-3">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#836EF9" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="4" y1="6" x2="20" y2="6"/>
+                <line x1="4" y1="12" x2="20" y2="12"/>
+                <line x1="4" y1="18" x2="20" y2="18"/>
+                <circle cx="9" cy="6" r="2" fill="#0D1117"/>
+                <circle cx="15" cy="12" r="2" fill="#0D1117"/>
+                <circle cx="9" cy="18" r="2" fill="#0D1117"/>
+              </svg>
+            </div>
+            <div className="text-sm font-semibold text-white mb-1.5">Fully Configurable</div>
+            <div className="text-xs text-slate-500 leading-relaxed">Set your own splits for taxes, 401k, health, bills. Change anytime.</div>
+          </div>
+
+          {/* Private */}
+          <div className="p-5 rounded-2xl" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+            <div className="mb-3">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#836EF9" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+              </svg>
+            </div>
+            <div className="text-sm font-semibold text-white mb-1.5">ZK Private</div>
+            <div className="text-xs text-slate-500 leading-relaxed">Your salary, splits, and spending are invisible on-chain. Only you can see your accounts.</div>
+          </div>
+
         </div>
       </div>
 
