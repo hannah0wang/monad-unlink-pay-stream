@@ -622,7 +622,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
-                      style={{ background: `${BUCKET_COLORS.UTILITIES}20` }}>⚡</div>
+                      style={{ background: `${BUCKET_COLORS.UTILITIES}20`, color: BUCKET_COLORS.UTILITIES }}>{TAB_ICONS.utilities}</div>
                     <div>
                       <h2 className="text-lg font-semibold text-white">Utilities & Bills</h2>
                       <p className="text-slate-500 text-sm">Bills paid automatically — no action needed</p>
@@ -660,7 +660,7 @@ export default function DashboardPage() {
                     </div>
                   ) : (
                     <div className="text-center py-6 mb-5">
-                      <div className="text-3xl mb-2">⚡</div>
+                      <div className="mb-2 flex justify-center" style={{ color: BUCKET_COLORS.UTILITIES }}>{TAB_ICONS.utilities}</div>
                       <div className="text-slate-500 text-sm mb-2">No bills configured yet</div>
                       <Link href="/setup" className="text-[#836EF9] text-sm hover:underline">Add bills in Setup →</Link>
                     </div>
@@ -686,7 +686,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
-                      style={{ background: `${BUCKET_COLORS.NET}20` }}>💰</div>
+                      style={{ background: `${BUCKET_COLORS.NET}20`, color: BUCKET_COLORS.NET }}>{TAB_ICONS.net}</div>
                     <div>
                       <h2 className="text-lg font-semibold text-white">Take-Home Pay</h2>
                       <p className="text-slate-500 text-sm">After all deductions — yours to spend</p>
