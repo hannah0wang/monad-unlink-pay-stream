@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { useAccount } from 'wagmi'
-import { EXECUTOR_URL } from '@/lib/contracts'
+import { useAccount, useSendTransaction } from 'wagmi'
+import { useUnlink, useDeposit } from '@unlink-xyz/react'
+import { USDC_ADDRESS, EXECUTOR_URL } from '@/lib/contracts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -215,10 +216,91 @@ function CsvPanel({ onImport }: { onImport: (rows: Employee[]) => void }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function EmployerPage() {
-  const { address } = useAccount()
+  const { address }            = useAccount()
+  const { sendTransactionAsync } = useSendTransaction()
+  const { createWallet, activeAccount } = useUnlink()
+  const [savedBalance, setSavedBalance] = useState('0')
+  useEffect(() => { setSavedBalance(localStorage.getItem('employer:balance') ?? '0') }, [])
+  const { deposit: unlinkDeposit, isPending: depositPending } = useDeposit()
+
+  // ── Wallet state (created silently on mount) ──────────────────────────────
+  const [mnemonic, setMnemonic]         = useState('')
+  const [masterAddr, setMasterAddr]     = useState('')
+  const [walletReady, setWalletReady]   = useState(false)
+  const [funded, setFunded]             = useState(false)
+  useEffect(() => {
+    setFunded(!!localStorage.getItem('employer:funded'))
+    setFundMsg(null)
+  }, [])
+  const [depositAmount, setDepositAmount] = useState('1000')
+  const [funding, setFunding]           = useState(false)
+  const [fundMsg, setFundMsg]           = useState<string | null>(null)
+
+  // Auto-create employer Unlink wallet on mount — user never sees this step.
+  // Mnemonic is persisted in localStorage so the same wallet is reused across sessions.
+  useEffect(() => {
+    const saved = localStorage.getItem('employer:mnemonic')
+    if (saved) {
+      setMnemonic(saved)
+      setWalletReady(true)
+      return
+    }
+    createWallet()
+      .then(result => {
+        setMnemonic(result.mnemonic)
+        localStorage.setItem('employer:mnemonic', result.mnemonic)
+        setWalletReady(true)
+      })
+      .catch(() => setWalletReady(true)) // already exists in IndexedDB
+  }, [])
+
+  // Capture master address once activeAccount is available
+  useEffect(() => {
+    if (activeAccount && !masterAddr) {
+      setMasterAddr(String((activeAccount as any).address ?? activeAccount))
+    }
+  }, [activeAccount])
+
+  async function handleFund() {
+    if (!address) { setFundMsg('Connect your wallet (top right) to deposit USDCm.'); return }
+    if (!depositAmount || parseFloat(depositAmount) <= 0) { setFundMsg('Enter an amount.'); return }
+    setFunding(true); setFundMsg(null)
+
+    // Save balance immediately — persists even if user closes tab mid-tx
+    const newBalance = (parseFloat(savedBalance || '0') + parseFloat(depositAmount)).toFixed(2)
+    localStorage.setItem('employer:balance', newBalance)
+    localStorage.setItem('employer:funded', '1')
+    setSavedBalance(newBalance)
+    setFunded(true)
+
+    try {
+      const amount = BigInt(Math.round(parseFloat(depositAmount) * 1e18))
+      const depositOp = await unlinkDeposit([{ token: USDC_ADDRESS, amount, depositor: address }])
+      await sendTransactionAsync({
+        to:   (depositOp as any).to   as `0x${string}`,
+        data: (depositOp as any).data as `0x${string}`,
+      })
+      if (mnemonic) {
+        await fetch(`${EXECUTOR_URL}/employer/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mnemonic, masterUnlinkAddr: masterAddr, employees: [] }),
+        }).catch(() => {})
+      }
+    } catch (err: any) {
+      // Revert balance on failure
+      const reverted = (parseFloat(newBalance) - parseFloat(depositAmount)).toFixed(2)
+      localStorage.setItem('employer:balance', reverted)
+      setSavedBalance(reverted)
+      setFundMsg(err.shortMessage ?? err.message)
+    } finally {
+      setFunding(false)
+    }
+  }
 
   const [tab, setTab]       = useState<'add' | 'roster' | 'csv'>('add')
-  const [employees, setEmployees] = useState<Employee[]>(loadEmployees)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  useEffect(() => { setEmployees(loadEmployees()) }, [])
   const [search, setSearch] = useState('')
   const [chartEmp, setChartEmp] = useState<Employee | null>(null)
 
@@ -240,7 +322,8 @@ export default function EmployerPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mnemonic: '', masterUnlinkAddr: '',
+          mnemonic,
+          masterUnlinkAddr: masterAddr,
           employees: [{ employeeId: parseInt(code), annualSalary: annualSalaryBase }],
         }),
       }).catch(() => {})
@@ -275,6 +358,54 @@ export default function EmployerPage() {
           </div>
           <h1 className="text-2xl font-bold text-white">Payroll Management</h1>
         </div>
+
+        {/* Payroll wallet card — two parts always visible */}
+        <div className="rounded-2xl mb-6 overflow-hidden flex"
+          style={{ border: '1px solid #1C2035' }}>
+
+          {/* Left: Fund */}
+          <div className="flex-1 p-5" style={{ background: '#0D1117' }}>
+            <div className="text-xs text-slate-500 mb-3">Fund wallet</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={depositAmount}
+                onChange={e => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="1000"
+                className="w-28 rounded-xl px-3 py-2.5 text-white text-sm outline-none"
+                style={{ background: '#060914', border: '1px solid #1C2035' }}
+                onFocus={e => e.currentTarget.style.borderColor = '#836EF9'}
+                onBlur={e => e.currentTarget.style.borderColor = '#1C2035'}
+              />
+              <span className="text-slate-500 text-xs">USDCm</span>
+              <button
+                onClick={handleFund}
+                disabled={funding || depositPending}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-50"
+                style={{ background: '#836EF9' }}>
+                {funding || depositPending ? 'Depositing...' : 'Fund →'}
+              </button>
+            </div>
+            {fundMsg && <div className="text-red-400 text-xs mt-2">{fundMsg}</div>}
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: '1px', background: '#1C2035' }} />
+
+          {/* Right: Balance */}
+          <div className="w-52 p-5 flex flex-col justify-center" style={{ background: '#0D1117' }}>
+            <div className="text-xs text-slate-500 mb-1">Available balance</div>
+            <div className="text-white font-bold text-xl">
+              {parseFloat(savedBalance) > 0 ? `${savedBalance}` : '—'}
+            </div>
+            {parseFloat(savedBalance) > 0 && (
+              <div className="text-slate-600 text-xs mt-0.5">USDCm</div>
+            )}
+          </div>
+
+        </div>
+
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 p-1 rounded-xl w-fit" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>

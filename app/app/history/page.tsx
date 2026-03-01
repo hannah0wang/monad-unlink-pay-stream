@@ -1,133 +1,133 @@
 'use client'
 
-/**
- * /history — Private transfer log
- *
- * Uses useUnlinkHistory() to display all private transfers across all bucket accounts.
- * These are encrypted on-chain — only you can see them.
- */
-import { useUnlinkHistory } from '@unlink-xyz/react'
-import { BUCKET_NAMES, BUCKET_COLORS } from '@/lib/unlink'
+import { useState, useEffect } from 'react'
+import { EXECUTOR_URL, formatUsdc } from '@/lib/contracts'
 
-type HistoryKind = 'Deposit' | 'Send' | 'Withdraw' | 'Receive'
-
-interface HistoryEntry {
-  id: string
-  kind: HistoryKind
-  timestamp: number
-  amounts: Array<{ token: string; delta: bigint | string }>
-  relayId?: string
-  accountIndex?: number
+interface Payslip {
+  id:         number
+  gross:      string
+  taxes:      string
+  retirement: string
+  health:     string
+  utilities:  string
+  net:        string
+  relay_id:   string | null
+  paid_at:    number
 }
 
-const KIND_COLOR: Record<HistoryKind, string> = {
-  Deposit:  'text-green-400 bg-green-400/10',
-  Receive:  'text-blue-400 bg-blue-400/10',
-  Send:     'text-orange-400 bg-orange-400/10',
-  Withdraw: 'text-purple-400 bg-purple-400/10',
-}
-
-function formatDelta(delta: bigint | string): string {
-  const n = typeof delta === 'bigint' ? delta : BigInt(delta)
-  const abs = n < 0n ? -n : n
-  const human = (Number(abs) / 1e6).toFixed(2)
-  return (n < 0n ? '−' : '+') + human
-}
-
-function accountLabel(idx: number | undefined): string {
-  if (idx === undefined) return '?'
-  const key = Object.entries({
-    MASTER: 0, TAXES: 1, RETIREMENT: 2, HEALTH: 3, UTILITIES: 4, NET: 5,
-  }).find(([, v]) => v === idx)?.[0] as keyof typeof BUCKET_NAMES | undefined
-  return key ? BUCKET_NAMES[key] : `Account ${idx}`
+function formatTs(ts: number) {
+  return new Date(ts * 1000).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
 }
 
 export default function HistoryPage() {
-  const { history, loading, refresh } = useUnlinkHistory() as {
-    history: HistoryEntry[]
-    loading: boolean
-    refresh: () => void
-  }
+  const [employeeId] = useState(() =>
+    typeof window !== 'undefined' ? (localStorage.getItem('employeeId') ?? '0') : '0'
+  )
+  const [payslips, setPayslips] = useState<Payslip[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo]     = useState('')
+
+  useEffect(() => {
+    fetch(`${EXECUTOR_URL}/status/${employeeId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.recentPayslips) setPayslips(data.recentPayslips)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [employeeId])
+
+  const fields: Array<{ label: string; key: keyof Payslip; color: string }> = [
+    { label: 'Gross',     key: 'gross',      color: '#94A3B8' },
+    { label: 'Taxes',     key: 'taxes',      color: '#F97316' },
+    { label: '401(k)',    key: 'retirement', color: '#22C55E' },
+    { label: 'Health',    key: 'health',     color: '#3B82F6' },
+    { label: 'Utilities', key: 'utilities',  color: '#EAB308' },
+    { label: 'Net',       key: 'net',        color: '#A855F7' },
+  ]
+
+  const filtered = payslips.filter(p => {
+    const ts = p.paid_at * 1000
+    if (dateFrom && ts < new Date(dateFrom).getTime()) return false
+    if (dateTo   && ts > new Date(dateTo).getTime() + 86_400_000 - 1) return false
+    return true
+  })
 
   return (
-    <div className="max-w-2xl mx-auto p-8">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Private Transfer History</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Encrypted transfer history across all your accounts
-          </p>
+    <div className="max-w-2xl mx-auto p-8" style={{ background: '#060914', minHeight: '100vh' }}>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">Payslip History</h1>
+        <p className="text-slate-500 text-sm mt-1">Every payroll cycle — detailed breakdown</p>
+      </div>
+
+      {/* Date filter */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-2 flex-1">
+          <label className="text-xs text-slate-500 shrink-0">From</label>
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            className="flex-1 rounded-xl px-3 py-2 text-white text-sm outline-none"
+            style={{ background: '#0D1117', border: '1px solid #1C2035', colorScheme: 'dark' }}
+          />
         </div>
-        <button
-          onClick={refresh}
-          className="px-3 py-1.5 text-xs border border-[#2A2A3A] text-gray-400 rounded-lg hover:bg-[#2A2A3A] transition-colors"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2 flex-1">
+          <label className="text-xs text-slate-500 shrink-0">To</label>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            className="flex-1 rounded-xl px-3 py-2 text-white text-sm outline-none"
+            style={{ background: '#0D1117', border: '1px solid #1C2035', colorScheme: 'dark' }}
+          />
+        </div>
+        {(dateFrom || dateTo) && (
+          <button onClick={() => { setDateFrom(''); setDateTo('') }}
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors shrink-0">
+            Clear
+          </button>
+        )}
       </div>
 
       {loading ? (
-        <div className="text-center py-16 text-gray-500">Loading history...</div>
-      ) : !history?.length ? (
-        <div className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-10 text-center text-gray-500">
-          No transfers yet. Run a payroll cycle to see entries here.
+        <div className="text-center py-12 text-slate-600">Loading...</div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-2xl p-10 text-center text-slate-600"
+          style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+          {payslips.length === 0
+            ? 'No payslips yet. Payroll runs automatically on your configured cadence.'
+            : 'No cycles found in this date range.'}
         </div>
       ) : (
         <div className="space-y-3">
-          {history.map((entry) => {
-            const kind = entry.kind as HistoryKind
-            const colorClass = KIND_COLOR[kind] ?? 'text-gray-400 bg-gray-400/10'
-            const date = new Date(entry.timestamp * 1000)
-            return (
-              <div
-                key={entry.id}
-                className="bg-[#14141F] border border-[#2A2A3A] rounded-xl p-4"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
-                      {kind}
-                    </span>
-                    <div>
-                      <div className="text-white text-sm font-medium">
-                        {accountLabel(entry.accountIndex)}
-                      </div>
-                      <div className="text-gray-600 text-xs mt-0.5">
-                        {date.toLocaleDateString()} {date.toLocaleTimeString()}
-                      </div>
+          {filtered.map(p => (
+            <div key={p.id} className="rounded-2xl p-5"
+              style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-slate-500 text-sm">{formatTs(p.paid_at)}</span>
+                <span className="text-white font-semibold">${formatUsdc(BigInt(p.gross || 0))} gross</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {fields.slice(1).map(({ label, key, color }) => (
+                  <div key={label} className="p-3 rounded-xl" style={{ background: '#060914', border: '1px solid #1C2035' }}>
+                    <div className="text-xs mb-1" style={{ color }}>{label}</div>
+                    <div className="text-white text-sm font-medium">
+                      ${formatUsdc(BigInt(p[key] as string || 0))}
                     </div>
                   </div>
-                  <div className="text-right">
-                    {(entry.amounts ?? []).map((a, i) => (
-                      <div
-                        key={i}
-                        className={`text-sm font-mono font-medium ${
-                          String(a.delta).startsWith('-') || (typeof a.delta === 'bigint' && a.delta < 0n)
-                            ? 'text-red-400'
-                            : 'text-green-400'
-                        }`}
-                      >
-                        {formatDelta(a.delta)} USDC
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {entry.relayId && (
-                  <div className="mt-2 text-xs text-gray-700 font-mono truncate">
-                    relay: {entry.relayId}
-                  </div>
-                )}
+                ))}
               </div>
-            )
-          })}
+              {p.relay_id && (
+                <div className="mt-3 text-xs text-slate-700 font-mono truncate">
+                  relay: {p.relay_id}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Privacy note */}
-      <div className="mt-6 p-4 bg-[#836EF9]/5 border border-[#836EF9]/20 rounded-xl">
-        <div className="text-xs text-gray-400">
-          <span className="text-[#836EF9] font-medium">Encrypted:</span> Your transfer history is end-to-end encrypted. Only you can see the details of your accounts and transactions.
-        </div>
+      <div className="mt-6 p-4 rounded-xl text-xs text-slate-500"
+        style={{ background: 'rgba(131,110,249,0.05)', border: '1px solid rgba(131,110,249,0.15)' }}>
+        <span className="text-[#836EF9] font-medium">Private:</span> Actual transfers are ZK-encrypted on-chain. These records come from the executor's local payslip log.
       </div>
     </div>
   )

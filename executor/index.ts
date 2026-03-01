@@ -33,7 +33,7 @@ import { registerEmployerHandler } from './routes/register-employer'
 import { runCycleHandler } from './routes/run-cycle'
 import { releaseWagesHandler } from './routes/release-wages'
 import { BILLER_REGISTRY } from './routes/pay-bill'
-import { getEmployee, getRecentPayslips, getBillsForEmployee } from './lib/db'
+import { db, getEmployee, getRecentPayslips, getBillsForEmployee } from './lib/db'
 import { getEmployeeBucketBalances } from './lib/wallet-manager'
 import { USDC_ADDRESS } from './lib/constants'
 
@@ -89,7 +89,8 @@ app.get('/status/:employeeId', async (c) => {
 
   const now       = Math.floor(Date.now() / 1000)
   const nextRunIn = Math.max(0, emp.next_run_at - now)
-  const payslips  = getRecentPayslips(employeeId, 5)
+  const payslips     = getRecentPayslips(employeeId, 10)
+  const totalCycles: number = (db.prepare('SELECT COUNT(*) as cnt FROM payslips WHERE employee_id = ?').get(employeeId) as any)?.cnt ?? 0
   const bills     = getBillsForEmployee(employeeId)
 
   let bucketBalances: Record<string, string> | null = null
@@ -106,6 +107,7 @@ app.get('/status/:employeeId', async (c) => {
       nextRunIn,
     },
     bucketBalances,
+    totalCycles,
     recentPayslips: payslips,
     bills: bills.map(b => ({
       ...b,

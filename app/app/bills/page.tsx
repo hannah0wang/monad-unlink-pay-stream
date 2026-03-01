@@ -7,7 +7,7 @@
  * Bills are paid automatically by the executor scheduler via x402 — no user action.
  * This page is purely informational / configuration management.
  */
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { EXECUTOR_URL } from '@/lib/contracts'
 
 interface Bill {

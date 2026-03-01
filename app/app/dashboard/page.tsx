@@ -9,7 +9,9 @@ import Link from 'next/link'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface StatusResponse {
-  employeeId: number
+  employeeId:   number
+  totalCycles?:    number
+  bucketBalances?: Record<string, string>
   schedule: {
     cadenceSeconds: number
     lastRunAt:      number
@@ -264,7 +266,7 @@ export default function DashboardPage() {
     async function load() {
       try {
         const res = await fetch(`${EXECUTOR_URL}/status/${employeeId}`)
-        if (!res.ok) { setFetchError(`Employee ${employeeId} not found`); return }
+        if (!res.ok) { setFetchError('Setup not complete — complete employee setup and ask your employer to register you.'); return }
         const data: StatusResponse = await res.json()
         setStatus(data); setCountdown(data.schedule.nextRunIn); setFetchError(null)
       } catch { setFetchError('Unable to reach payroll server — showing default allocations') }
@@ -280,12 +282,20 @@ export default function DashboardPage() {
   }, [])
 
   // Balances
+  // Bucket balances come from the executor's /status endpoint (ZK-private,
+  // queried server-side by the Unlink Node SDK). The browser-side balances
+  // from useUnlink() only shows the active account keyed by token address —
+  // not per-bucket, so we use the executor's bucketBalances instead.
   const getBal = (key: BucketKey): bigint => {
-    const idx = BUCKET[key]
-    const b   = Array.isArray(balances) ? balances[idx] : balances?.[idx]
-    return BigInt(b ?? 0)
+    const fromStatus = status?.bucketBalances?.[key]
+    if (fromStatus) return BigInt(fromStatus)
+    return 0n
   }
   const bucketKeys: BucketKey[] = ['TAXES', 'RETIREMENT', 'HEALTH', 'UTILITIES', 'NET']
+
+  // Sum a payslip field across all recent payslips
+  const getTotal = (field: 'gross' | 'taxes' | 'retirement' | 'health' | 'utilities' | 'net') =>
+    (status?.recentPayslips ?? []).reduce((acc, p) => acc + BigInt(p[field] || 0), 0n)
   const totalBal = bucketKeys.reduce((s, k) => s + getBal(k), 0n)
   const hasBalances = totalBal > 0n
 
@@ -463,20 +473,19 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
                       style={{ background: `${BUCKET_COLORS.RETIREMENT}20`, color: BUCKET_COLORS.RETIREMENT }}>{TAB_ICONS.retirement}</div>
-                    <div>
+                    <div className="flex-1">
                       <h2 className="text-lg font-semibold text-white">401(k) Retirement</h2>
                       <p className="text-slate-500 text-sm">Auto-withheld each paycheck, pre-tax</p>
                     </div>
-                  </div>
-                  {walletExists && (
-                    <div className="p-4 rounded-2xl mb-6" style={{ background: '#060914', border: '1px solid #1C2035' }}>
-                      <div className="text-xs text-slate-500 mb-1">Current Balance</div>
-                      <div className="text-3xl font-bold" style={{ color: BUCKET_COLORS.RETIREMENT }}>
-                        ${formatUsdc(getBal('RETIREMENT'))}
+                    {getTotal('retirement') > 0n && (
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500">Total withheld</div>
+                        <div className="text-xl font-bold" style={{ color: BUCKET_COLORS.RETIREMENT }}>
+                          ${formatUsdc(getTotal('retirement'))}
+                        </div>
                       </div>
-                      <div className="text-xs text-slate-600">USDC</div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                   <div className="mb-6">
                     <div className="flex justify-between items-center mb-3">
                       <label className="text-sm font-medium text-white">Contribution Rate</label>
@@ -505,10 +514,6 @@ export default function DashboardPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="mt-4 p-3 rounded-xl text-xs"
-                    style={{ background: `${BUCKET_COLORS.RETIREMENT}0D`, color: BUCKET_COLORS.RETIREMENT, border: `1px solid ${BUCKET_COLORS.RETIREMENT}25` }}>
-                    Changes take effect on your next payroll cycle
-                  </div>
                 </div>
               )}
 
@@ -518,20 +523,17 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
                       style={{ background: `${BUCKET_COLORS.TAXES}20`, color: BUCKET_COLORS.TAXES }}>{TAB_ICONS.taxes}</div>
-                    <div>
+                    <div className="flex-1">
                       <h2 className="text-lg font-semibold text-white">Tax Withholding</h2>
                       <p className="text-slate-500 text-sm">Calculated automatically · read-only</p>
                     </div>
-                  </div>
-                  {walletExists && (
-                    <div className="p-4 rounded-2xl mb-6" style={{ background: '#060914', border: '1px solid #1C2035' }}>
-                      <div className="text-xs text-slate-500 mb-1">Held in Escrow</div>
-                      <div className="text-3xl font-bold" style={{ color: BUCKET_COLORS.TAXES }}>
-                        ${formatUsdc(getBal('TAXES'))}
+                    {getTotal('taxes') > 0n && (
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500">Total withheld</div>
+                        <div className="text-xl font-bold" style={{ color: BUCKET_COLORS.TAXES }}>${formatUsdc(getTotal('taxes'))}</div>
                       </div>
-                      <div className="text-xs text-slate-600">USDC · routed at tax season</div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                   <div className="space-y-2.5 mb-5">
                     {[
                       { label: 'Federal Income Tax',      rate: '22%',   color: '#F97316', desc: 'Standard bracket withholding' },
@@ -556,10 +558,6 @@ export default function DashboardPage() {
                     <span className="font-semibold text-white">Total Withholding</span>
                     <span className="font-bold text-xl" style={{ color: BUCKET_COLORS.TAXES }}>~32.7%</span>
                   </div>
-                  <div className="mt-3 p-3 rounded-xl text-xs"
-                    style={{ background: `${BUCKET_COLORS.TAXES}0D`, color: BUCKET_COLORS.TAXES, border: `1px solid ${BUCKET_COLORS.TAXES}25` }}>
-                    Rates are estimated. Actual withholding set during Employee Setup.
-                  </div>
                 </div>
               )}
 
@@ -569,20 +567,17 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
                       style={{ background: `${BUCKET_COLORS.HEALTH}20`, color: BUCKET_COLORS.HEALTH }}>{TAB_ICONS.health}</div>
-                    <div>
+                    <div className="flex-1">
                       <h2 className="text-lg font-semibold text-white">Health Insurance</h2>
                       <p className="text-slate-500 text-sm">Premium withheld pre-tax each paycheck</p>
                     </div>
-                  </div>
-                  {walletExists && (
-                    <div className="p-4 rounded-2xl mb-5" style={{ background: '#060914', border: '1px solid #1C2035' }}>
-                      <div className="text-xs text-slate-500 mb-1">Health Bucket Balance</div>
-                      <div className="text-3xl font-bold" style={{ color: BUCKET_COLORS.HEALTH }}>
-                        ${formatUsdc(getBal('HEALTH'))}
+                    {getTotal('health') > 0n && (
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500">Total withheld</div>
+                        <div className="text-xl font-bold" style={{ color: BUCKET_COLORS.HEALTH }}>${formatUsdc(getTotal('health'))}</div>
                       </div>
-                      <div className="text-xs text-slate-600">USDC</div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                   <div className="space-y-2">
                     {HEALTH_PLANS.map(plan => {
                       const active = healthPlan === plan.id
@@ -610,10 +605,6 @@ export default function DashboardPage() {
                       )
                     })}
                   </div>
-                  <div className="mt-4 p-3 rounded-xl text-xs"
-                    style={{ background: `${BUCKET_COLORS.HEALTH}0D`, color: BUCKET_COLORS.HEALTH, border: `1px solid ${BUCKET_COLORS.HEALTH}25` }}>
-                    Plan changes require re-enrollment. Contact HR to update your selection.
-                  </div>
                 </div>
               )}
 
@@ -623,20 +614,17 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
                       style={{ background: `${BUCKET_COLORS.UTILITIES}20`, color: BUCKET_COLORS.UTILITIES }}>{TAB_ICONS.utilities}</div>
-                    <div>
+                    <div className="flex-1">
                       <h2 className="text-lg font-semibold text-white">Utilities & Bills</h2>
                       <p className="text-slate-500 text-sm">Bills paid automatically — no action needed</p>
                     </div>
-                  </div>
-                  {walletExists && (
-                    <div className="p-4 rounded-2xl mb-5" style={{ background: '#060914', border: '1px solid #1C2035' }}>
-                      <div className="text-xs text-slate-500 mb-1">Utilities Balance</div>
-                      <div className="text-3xl font-bold" style={{ color: BUCKET_COLORS.UTILITIES }}>
-                        ${formatUsdc(getBal('UTILITIES'))}
+                    {getTotal('utilities') > 0n && (
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500">Total withheld</div>
+                        <div className="text-xl font-bold" style={{ color: BUCKET_COLORS.UTILITIES }}>${formatUsdc(getTotal('utilities'))}</div>
                       </div>
-                      <div className="text-xs text-slate-600">USDC</div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                   {status?.bills && status.bills.length > 0 ? (
                     <div className="space-y-2.5 mb-5">
                       {status.bills.map(bill => (
@@ -687,22 +675,24 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-xl"
                       style={{ background: `${BUCKET_COLORS.NET}20`, color: BUCKET_COLORS.NET }}>{TAB_ICONS.net}</div>
-                    <div>
+                    <div className="flex-1">
                       <h2 className="text-lg font-semibold text-white">Take-Home Pay</h2>
                       <p className="text-slate-500 text-sm">After all deductions — yours to spend</p>
                     </div>
+                    {getTotal('net') > 0n && (
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500">Total earned</div>
+                        <div className="text-xl font-bold" style={{ color: BUCKET_COLORS.NET }}>${formatUsdc(getTotal('net'))}</div>
+                      </div>
+                    )}
                   </div>
                   <div className="p-6 rounded-2xl mb-5"
                     style={{ background: `${BUCKET_COLORS.NET}0D`, border: `1px solid ${BUCKET_COLORS.NET}30` }}>
-                    <div className="text-xs text-slate-500 mb-1">
-                      {walletExists ? 'Available Balance' : 'Projected Take-Home'}
-                    </div>
+                    <div className="text-xs text-slate-500 mb-1">Projected Take-Home</div>
                     <div className="text-4xl font-bold mb-1" style={{ color: BUCKET_COLORS.NET }}>
-                      {walletExists ? `$${formatUsdc(getBal('NET'))}` : `${netPct}%`}
+                      {netPct}%
                     </div>
-                    <div className="text-xs text-slate-600">
-                      {walletExists ? 'USDC · spendable now' : 'of each paycheck'}
-                    </div>
+                    <div className="text-xs text-slate-600">of each paycheck</div>
                   </div>
                   <div className="p-4 rounded-2xl" style={{ background: '#060914', border: '1px solid #1C2035' }}>
                     <div className="text-xs text-slate-500 uppercase tracking-wider mb-3">Deduction Breakdown</div>
@@ -735,26 +725,15 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Payslip history */}
-        {status?.recentPayslips && status.recentPayslips.length > 1 && (
-          <div className="mt-5 rounded-3xl p-6" style={{ background: '#0D1117', border: '1px solid #1C2035' }}>
-            <div className="text-xs text-slate-600 uppercase tracking-wider mb-4">Payslip History</div>
-            <div className="space-y-2.5">
-              {status.recentPayslips.slice(1).map(p => (
-                <div key={p.id} className="flex items-center justify-between p-3.5 rounded-xl text-sm"
-                  style={{ background: '#060914', border: '1px solid #1C2035' }}>
-                  <span className="text-slate-500">{formatTs(p.paid_at)}</span>
-                  <div className="flex gap-5 text-xs">
-                    <span className="text-slate-500">Gross <span className="text-white font-medium">${p.gross ? formatUsdc(BigInt(p.gross)) : '0.00'}</span></span>
-                    <span className="text-slate-500">Net <span className="text-white font-medium">${p.net ? formatUsdc(BigInt(p.net)) : '0.00'}</span></span>
-                    <span className="text-slate-500">401k <span className="text-white font-medium">${p.retirement ? formatUsdc(BigInt(p.retirement)) : '0.00'}</span></span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 text-center">
-              <Link href="/history" className="text-xs text-[#836EF9] hover:underline">Full transfer history →</Link>
-            </div>
+        {/* History link */}
+        {status?.recentPayslips && status.recentPayslips.length > 0 && (
+          <div className="mt-4 flex items-center justify-between px-1">
+            <span className="text-xs text-slate-600">
+              {status.totalCycles ?? status.recentPayslips.length} payroll cycle{(status.totalCycles ?? status.recentPayslips.length) !== 1 ? 's' : ''} recorded
+            </span>
+            <Link href="/history" className="text-xs text-[#836EF9] hover:underline">
+              View detailed history →
+            </Link>
           </div>
         )}
 

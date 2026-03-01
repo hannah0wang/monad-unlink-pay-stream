@@ -82,8 +82,7 @@ async function importWallet(
 
   const seedExists = await unlink.seed.exists()
   if (seedExists && allowExisting) {
-    // Wallet already imported — just sync and return
-    await unlink.sync()
+    await unlink.sync({ forceFullResync: true })
     return unlink
   }
 
@@ -91,7 +90,8 @@ async function importWallet(
   for (let i = 0; i < accountCount; i++) {
     await unlink.accounts.create()
   }
-  await unlink.sync()
+  // forceFullResync ensures freshly-deposited notes are visible immediately
+  await unlink.sync({ forceFullResync: true })
   return unlink
 }
 
@@ -151,7 +151,9 @@ export async function getEmployeeBucketBalances(employeeId: number, usdcAddress:
   return withEmployeeLock(employeeId, async (unlink) => {
     const result: Record<string, string> = {}
     for (const [key, idx] of Object.entries(BUCKET)) {
+      // sync() applies to the active account — must switch first, then sync
       await unlink.accounts.setActive(idx)
+      await unlink.sync()
       result[key] = (await unlink.getBalance(usdcAddress)).toString()
     }
     await unlink.accounts.setActive(BUCKET.MASTER)

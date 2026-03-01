@@ -27,7 +27,8 @@ export async function registerEmployerHandler(c: Context) {
     masterUnlinkAddr: string
     employees: Array<{
       employeeId:    number
-      annualSalary: string
+      annualSalary?: string
+      ratePerPeriod?: number  // legacy: used by test script
     }>
   }
 
@@ -61,13 +62,22 @@ export async function registerEmployerHandler(c: Context) {
     await registerEmployerWallet(employerId, mnemonic)
 
     // Link employees to this employer and set their rate
-    for (const { employeeId, annualSalary } of employees) {
+    for (const { employeeId, annualSalary, ratePerPeriod } of employees) {
       const existing = getEmployee(employeeId)!
+      // Accept either annualSalary (new) or ratePerPeriod (legacy test script)
+      // Convert legacy ratePerPeriod (per-cycle amount) → annual salary
+      // annual = ratePerPeriod * (seconds_per_year / cadence_seconds)
+      const cadence = BigInt(existing.cadence_seconds || 60)
+      const finalAnnualSalary = annualSalary && annualSalary !== '0'
+        ? annualSalary
+        : ratePerPeriod
+          ? (BigInt(ratePerPeriod) * 31_557_600n / cadence).toString()
+          : existing.annual_salary || '0'
       upsertEmployee({
         ...existing,
-        employer_id:   employerId,
-        annual_salary: annualSalary,
-        rate_per_period: 0,  // deprecated, use annual_salary
+        employer_id:     employerId,
+        annual_salary:   finalAnnualSalary,
+        rate_per_period: ratePerPeriod ?? existing.rate_per_period,
       })
     }
 

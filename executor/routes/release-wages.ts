@@ -38,13 +38,27 @@ export async function releaseWagesHandler(c: Context) {
   const employer = getEmployer(emp.employer_id)
   if (!employer) return c.json({ error: `Employer ${emp.employer_id} not registered` }, 404)
 
-  // Prorate annual salary to this pay cycle
-  // amount = annual_salary * cadence_seconds / seconds_per_year
-  const SECONDS_PER_YEAR = 31_557_600n  // 365.25 days
-  const annualSalary = BigInt(emp.annual_salary || emp.rate_per_period || 0)
-  const amount = (annualSalary * BigInt(emp.cadence_seconds)) / SECONDS_PER_YEAR
+  // Compute per-cycle wage amount:
+  //   - new path: annual_salary prorated to this cadence
+  //   - legacy path: rate_per_period used directly as per-cycle amount
+  const SECONDS_PER_YEAR = 31_557_600n
+  const annualSalary = BigInt(emp.annual_salary && emp.annual_salary !== '0' ? emp.annual_salary : '0')
+  const amount = annualSalary > 0n
+    ? (annualSalary * BigInt(emp.cadence_seconds)) / SECONDS_PER_YEAR
+    : BigInt(emp.rate_per_period || 0)   // legacy: already per-cycle
+
+  if (amount === 0n) {
+    return c.json({ error: 'Wage amount is 0 — set annual_salary when registering employer, or re-register employee with a rate.' }, 400)
+  }
 
   try {
+    // ── Sync employer wallet (picks up notes from deposits) ──────────────────
+    // forceFullResync ensures freshly-deposited notes are visible before send
+    await withEmployerLock(emp.employer_id, async (unlink) => {
+      await unlink.accounts.setActive(0)
+      await unlink.sync({ forceFullResync: true })
+    })
+
     // ── Check employer Unlink balance ─────────────────────────────────────────
     const balance = await withEmployerLock(emp.employer_id, async (unlink) => {
       await unlink.accounts.setActive(0)
