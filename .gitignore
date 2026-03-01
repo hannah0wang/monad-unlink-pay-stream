@@ -1,0 +1,21 @@
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/lib/
+contracts/broadcast/
+
+# Node
+node_modules/
+app/node_modules/
+executor/node_modules/
+app/.next/
+app/.env.local
+executor/.env
+
+# Bun
+bun.lockb
+
+# Misc
+.DS_Store
+*.log
+data/

@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0E0E16;
+  --card: #14141F;
+  --border: #2A2A3A;
+  --purple: #836EF9;
+}
+
+body {
+  background-color: var(--bg);
+  color: #E2E8F0;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* RainbowKit dark override */
+[data-rk] {
+  --rk-colors-accentColor: #836EF9 !important;
+  --rk-colors-modalBackground: #14141F !important;
+  --rk-colors-modalBorder: #2A2A3A !important;
+}
