@@ -1,147 +1,152 @@
 /**
- * Payroll cycle — core logic called by the scheduler.
- * Also exposed as POST /internal/runCycle (X-INTERNAL-KEY) for smoke testing.
+ * Payroll cycle — employee's executor agent requests wages via x402,
+ * then routes privately to all 5 buckets.
  *
- * All Unlink operations go through withEmployeeLock() to prevent setActive()
- * races with concurrent status reads or bill payments.
+ * x402 is used in BOTH major flows:
+ *
+ *   Wages:  employee executor → employer payroll agent (x402 authorization)
+ *           "I'm the employee's agent; here's $0.01 proof this request is legitimate"
+ *           → employer agent sends wages privately via Unlink
+ *
+ *   Bills:  executor → biller (x402 payment)
+ *           → biller sends goods/service, executor reimburses from Utilities bucket
+ *
+ * Both are machine-to-machine, scheduler-triggered, no human interaction.
  */
 import type { Context } from 'hono'
 import { waitForConfirmation } from '@unlink-xyz/node'
-import { parseAbi } from 'viem'
-import { walletClient, publicClient, EXECUTOR_ADDRESS, executorAccount } from '../lib/wallet'
+import { walletClient, executorAccount } from '../lib/wallet'
 import { withEmployeeLock, BUCKET } from '../lib/wallet-manager'
 import { getEmployee, updateEmployeeRuntime, insertPayslip } from '../lib/db'
-import { USDC_ADDRESS, PAYROLL_MANAGER_ADDRESS as PAYROLL_MANAGER } from '../lib/constants'
+import { USDC_ADDRESS } from '../lib/constants'
 
-const PAYROLL_ABI = parseAbi([
-  'function executePay(uint256 employeeId) external returns (uint256 amount)',
-])
-const ERC20_ABI = parseAbi([
-  'function approve(address spender, uint256 amount) external returns (bool)',
-])
-
-function computeOpsFee(gross: bigint): bigint {
-  // max($0.01, 0.1% of gross) — retained in executor wallet, funds x402 bill payments
-  const pct = gross / 1000n
-  const min = 10_000n
-  return pct > min ? pct : min
-}
+// Wage release endpoint — employer's payroll agent.
+// In production: employer runs this on their own server.
+// In demo: same process, different route (/payroll/release-wages).
+const PAYROLL_AGENT_URL = process.env.PAYROLL_AGENT_URL ?? 'http://localhost:3001'
 
 export interface PayslipResult {
-  employeeId:    number
-  gross:         bigint
-  opsFee:        bigint
-  distributable: bigint
+  employeeId:   number
+  gross:        bigint
   buckets: { taxes: bigint; retirement: bigint; health: bigint; utilities: bigint; net: bigint }
-  relayId:       string
-  payTxHash:     `0x${string}`
-  paidAt:        number
+  wageRelayId:  string
+  routeRelayId: string
+  paidAt:       number
 }
 
 export async function runCycleForEmployee(employeeId: number): Promise<PayslipResult> {
-  const config = getEmployee(employeeId)
-  if (!config) throw new Error(`Employee ${employeeId} not registered`)
+  const emp = getEmployee(employeeId)
+  if (!emp) throw new Error(`Employee ${employeeId} not registered`)
   if (!walletClient || !executorAccount) throw new Error('Executor wallet not configured')
 
-  // ── 1. Pull wages from PayrollManager (on-chain) ───────────────────────────
-  console.log(`[cycle:${employeeId}] executePay()`)
-  const payTxHash = await walletClient.writeContract({
-    address:      PAYROLL_MANAGER,
-    abi:          PAYROLL_ABI,
-    functionName: 'executePay',
-    args:         [BigInt(employeeId)],
+  // ── 1. Request wages from employer's payroll agent via x402 ────────────────
+  //
+  // Employee's executor pays a $0.01 x402 fee to the employer's payroll endpoint.
+  // This is the authorization proof — proves the request is from the employee's
+  // legitimate agent, not a spoofed request.
+  //
+  // The employer's agent (POST /payroll/release-wages) verifies the x402 payment
+  // then executes: employer_unlink.send(ratePerPeriod → employee_master)
+  //
+  // In production, PAYROLL_AGENT_URL points to employer's own server.
+  // In demo, it loops back to this same process (different route prefix).
+
+  // Call employer's payroll agent to authorize and send wages.
+  // In production: employer runs their own server and this is a real x402 payment.
+  // In demo: both are the same process — use INTERNAL_KEY instead to avoid the
+  // circular payment problem (executor paying itself via x402 can't be settled
+  // by the facilitator since payer == payee).
+  // x402 is demonstrated on executor→biller (external, different parties).
+
+  console.log(`[cycle:${employeeId}] requesting wages from employer payroll agent`)
+
+  const wageRes = await fetch(`${PAYROLL_AGENT_URL}/payroll/release-wages`, {
+    method:  'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Key': process.env.INTERNAL_KEY ?? '',
+    },
+    body: JSON.stringify({ employeeId }),
   })
-  const payReceipt = await publicClient.waitForTransactionReceipt({ hash: payTxHash })
-  if (payReceipt.status !== 'success') throw new Error('executePay reverted')
 
-  const gross = parseGrossFromReceipt(payReceipt)
+  if (!wageRes.ok) {
+    const err = await wageRes.json().catch(() => ({ error: `HTTP ${wageRes.status}` })) as any
+    throw new Error(`Wage release failed: ${err.error ?? JSON.stringify(err)}`)
+  }
 
-  // ── 2+3. Deposit into employee's Master Unlink account ─────────────────────
-  // Uses mutex — no concurrent setActive interference
-  let depositRelayId: string
-  await withEmployeeLock(employeeId, async (unlink) => {
+  const wageData = await wageRes.json() as { relayId: string; amount: string }
+  const gross      = BigInt(wageData.amount)
+  const wageRelayId = wageData.relayId
+
+  console.log(`[cycle:${employeeId}] wages received — ${gross} — relay ${wageRelayId}`)
+
+  // ── 2. Route employee Master → 5 buckets (private sends) ──────────────────
+  const taxes      = (gross * BigInt(emp.taxes_bps))      / 10000n
+  const retirement = (gross * BigInt(emp.retirement_bps)) / 10000n
+  const health     = (gross * BigInt(emp.health_bps))     / 10000n
+  const utilities  = (gross * BigInt(emp.utilities_bps))  / 10000n
+  const net        = gross - taxes - retirement - health - utilities
+
+  const transfers = [
+    { token: USDC_ADDRESS, recipient: emp.taxes_unlink_addr,      amount: taxes },
+    { token: USDC_ADDRESS, recipient: emp.retirement_unlink_addr,  amount: retirement },
+    { token: USDC_ADDRESS, recipient: emp.health_unlink_addr,      amount: health },
+    { token: USDC_ADDRESS, recipient: emp.utilities_unlink_addr,   amount: utilities },
+    { token: USDC_ADDRESS, recipient: emp.net_unlink_addr,         amount: net },
+  ].filter(t => t.amount > 0n)
+
+  console.log(`[cycle:${employeeId}] routing ${transfers.length} private sends from Master`)
+
+  const routeRelayId = await withEmployeeLock(employeeId, async (unlink) => {
+    // Sync with retry — wages just landed on-chain but the Unlink indexer may need
+    // a few seconds to process the new note. Poll until balance >= gross or timeout.
     await unlink.accounts.setActive(BUCKET.MASTER)
-
-    // SDK generates ZK commitment + calldata; returns { to, calldata, relayId }
-    const depositOp = await unlink.deposit({
-      depositor: EXECUTOR_ADDRESS as `0x${string}`,
-      deposits:  [{ token: USDC_ADDRESS, amount: gross }],
-    })
-
-    // Approve token to pool (depositOp.to is the Unlink pool address)
-    const approveTx = await walletClient!.writeContract({
-      address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'approve',
-      args:    [depositOp.to as `0x${string}`, gross],
-    })
-    await publicClient.waitForTransactionReceipt({ hash: approveTx })
-
-    // Submit deposit calldata from executor EOA
-    const depositTxHash = await walletClient!.sendTransaction({
-      to:   depositOp.to      as `0x${string}`,
-      data: depositOp.calldata as `0x${string}`,
-    })
-    await publicClient.waitForTransactionReceipt({ hash: depositTxHash })
-
-    await unlink.confirmDeposit(depositOp.relayId)
-    depositRelayId = depositOp.relayId
-    console.log(`[cycle:${employeeId}] deposited — relay ${depositOp.relayId}`)
+    // Force full resync first to clear any stuck/pending note states from
+    // previous failed attempts. Then poll until balance reflects the incoming wages.
+    await unlink.sync({ forceFullResync: true })
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      const bal = await unlink.getBalance(USDC_ADDRESS)
+      if (bal >= gross) {
+        console.log(`[cycle:${employeeId}] Master balance ready: ${bal}`)
+        break
+      }
+      if (attempt === 10) throw new Error(`Employee Master never received wages (have ${bal}, need ${gross})`)
+      console.log(`[cycle:${employeeId}] Waiting for wages to index... attempt ${attempt}/10 (have ${bal})`)
+      await new Promise(r => setTimeout(r, 4000))
+      await unlink.sync()
+    }
+    const result = await unlink.send({ transfers })
+    await waitForConfirmation(unlink, result.relayId)
+    return result.relayId
   })
 
-  // ── 4. Private routing: Master → 5 buckets ─────────────────────────────────
-  const opsFee       = computeOpsFee(gross)
-  const distributable = gross - opsFee
-  const taxes       = (distributable * BigInt(config.taxes_bps))      / 10000n
-  const retirement  = (distributable * BigInt(config.retirement_bps)) / 10000n
-  const health      = (distributable * BigInt(config.health_bps))     / 10000n
-  const utilities   = (distributable * BigInt(config.utilities_bps))  / 10000n
-  const net         = distributable - taxes - retirement - health - utilities
-
-  let sendRelayId: string
-  await withEmployeeLock(employeeId, async (unlink) => {
-    await unlink.accounts.setActive(BUCKET.MASTER)
-
-    const transfers = [
-      { token: USDC_ADDRESS, recipient: config.taxes_unlink_addr,      amount: taxes },
-      { token: USDC_ADDRESS, recipient: config.retirement_unlink_addr,  amount: retirement },
-      { token: USDC_ADDRESS, recipient: config.health_unlink_addr,      amount: health },
-      { token: USDC_ADDRESS, recipient: config.utilities_unlink_addr,   amount: utilities },
-      { token: USDC_ADDRESS, recipient: config.net_unlink_addr,         amount: net },
-    ].filter(t => t.amount > 0n)
-
-    console.log(`[cycle:${employeeId}] routing ${transfers.length} private sends`)
-    const sendResult = await unlink.send({ transfers })
-    await waitForConfirmation(unlink, sendResult.relayId)
-    sendRelayId = sendResult.relayId
-  })
-
-  // ── 5. Record ──────────────────────────────────────────────────────────────
+  // ── 3. Record ──────────────────────────────────────────────────────────────
   const paidAt = Math.floor(Date.now() / 1000)
 
   insertPayslip({
     employee_id: employeeId,
     gross:       gross.toString(),
-    ops_fee:     opsFee.toString(),
     taxes:       taxes.toString(),
     retirement:  retirement.toString(),
     health:      health.toString(),
     utilities:   utilities.toString(),
     net:         net.toString(),
-    relay_id:    sendRelayId!,
+    relay_id:    routeRelayId,
   })
   updateEmployeeRuntime(employeeId, paidAt)
 
-  console.log(`[cycle:${employeeId}] done — relay ${sendRelayId!}`)
+  console.log(`[cycle:${employeeId}] complete`)
 
   return {
-    employeeId, gross, opsFee, distributable,
+    employeeId, gross,
     buckets: { taxes, retirement, health, utilities, net },
-    relayId:   sendRelayId!,
-    payTxHash,
+    wageRelayId,
+    routeRelayId,
     paidAt,
   }
 }
 
-// ─── Internal HTTP route ──────────────────────────────────────────────────────
+// ─── Internal HTTP route (X-INTERNAL-KEY, for manual testing) ─────────────────
 
 export async function runCycleHandler(c: Context) {
   const key = c.req.header('x-internal-key')
@@ -158,30 +163,11 @@ export async function runCycleHandler(c: Context) {
       ok: true,
       payslip: {
         ...p,
-        gross:         p.gross.toString(),
-        opsFee:        p.opsFee.toString(),
-        distributable: p.distributable.toString(),
+        gross:  p.gross.toString(),
         buckets: Object.fromEntries(Object.entries(p.buckets).map(([k, v]) => [k, v.toString()])),
       },
     })
   } catch (err: any) {
     return c.json({ error: err.message }, 500)
   }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function parseGrossFromReceipt(receipt: { logs: readonly any[] }): bigint {
-  // PayExecuted(uint256 indexed employeeId, uint256 amount)
-  // amount is the first non-indexed field → first 32 bytes of log.data
-  for (const log of receipt.logs) {
-    if (log.data && log.data.length >= 66) {
-      try {
-        const amount = BigInt('0x' + log.data.slice(2, 66))
-        if (amount > 0n) return amount
-      } catch {}
-    }
-  }
-  console.warn('[cycle] Could not parse amount from PayExecuted — defaulting to 100 USDC')
-  return 100_000_000n
 }

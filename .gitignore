@@ -19,3 +19,6 @@ bun.lockb
 .DS_Store
 *.log
 data/
+executor/test-data/
+
+.env

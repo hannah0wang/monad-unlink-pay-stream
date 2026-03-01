@@ -41,3 +41,16 @@ export const publicClient = createPublicClient({
 })
 
 export const EXECUTOR_ADDRESS = executorAccount?.address ?? '0x0000000000000000000000000000000000000000'
+
+/**
+ * Read the executor EOA's ERC-20 token balance.
+ * Used to monitor USDCm float available for x402 bill payments.
+ */
+export async function getExecutorTokenBalance(tokenAddress: `0x${string}`): Promise<bigint> {
+  return publicClient.readContract({
+    address:      tokenAddress,
+    abi:          [{ name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] }] as const,
+    functionName: 'balanceOf',
+    args:         [EXECUTOR_ADDRESS as `0x${string}`],
+  })
+}

@@ -82,6 +82,8 @@ export async function registerHandler(c: Context) {
 
     upsertEmployee({
       employee_id:            employeeId,
+      employer_id:            0,   // placeholder — set when employer calls /employer/register
+      rate_per_period:        0,   // placeholder — set when employer calls /employer/register
       taxes_bps:              bucketBps.taxesBps      ?? 2500,
       retirement_bps:         bucketBps.retirementBps ?? 500,
       health_bps:             bucketBps.healthBps     ?? 300,

@@ -44,6 +44,27 @@ forge script script/Deploy.s.sol --rpc-url $MONAD_RPC_URL --broadcast
 
 ---
 
+## 1b. Pre-fund executor EOA with USDCm (required for bill payments)
+
+The executor fronts bill payments via x402 from its own EOA wallet, then gets reimbursed
+from each employee's private Utilities Unlink bucket. It needs a USDCm float to do this.
+
+```bash
+# Send $500 USDCm to executor EOA (replace addresses from your .env)
+cast send $USDC_ADDRESS \
+  "transfer(address,uint256)" $EXECUTOR_ADDRESS 500000000 \
+  --private-key $PRIVATE_KEY \
+  --rpc-url $MONAD_RPC_URL
+
+# Verify
+curl http://localhost:3001/health
+# → { "executorFloat": "$500.00 USDCm", "floatWarning": null }
+```
+
+Reimbursements replenish the float automatically as employees' Utilities buckets are charged.
+
+---
+
 ## 2. Executor (Bun/Hono)
 
 ```bash

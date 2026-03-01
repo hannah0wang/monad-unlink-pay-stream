@@ -14,9 +14,10 @@
  *   Employee Utilities bucket ─(Unlink withdraw)─► Executor EOA ─(x402)─► Biller
  */
 import { waitForConfirmation } from '@unlink-xyz/node'
-import { wrapFetchWithPayment } from '@x402/fetch'
+import { wrapFetchWithPaymentFromConfig } from '@x402/fetch'
 import { ExactEvmScheme } from '@x402/evm'
-import { walletClient, EXECUTOR_ADDRESS } from '../lib/wallet'
+import { publicActions } from 'viem'
+import { walletClient, executorAccount, EXECUTOR_ADDRESS } from '../lib/wallet'
 import { withEmployeeLock, getBucketBalance, BUCKET } from '../lib/wallet-manager'
 import { getEmployee, updateBillPaid, type Bill } from '../lib/db'
 import { USDC_ADDRESS } from '../lib/constants'
@@ -29,17 +30,18 @@ export const BILLER_REGISTRY: Record<string, {
   address:           `0x${string}`   // biller's payTo address (used in 402 response)
   defaultAmountUsdc: bigint
 }> = {
+  // USDCm has 18 decimals: amounts use 1e18 base unit
   electric: {
     name:              'Monad Electric Co.',
     url:               process.env.ELECTRIC_BILLER_URL   ?? 'http://localhost:3002',
     address:           (process.env.ELECTRIC_BILLER_ADDRESS  ?? '0x0000000000000000000000000000000000000002') as `0x${string}`,
-    defaultAmountUsdc: 12_500_000n,
+    defaultAmountUsdc: 12_500_000_000_000_000_000n,  // 12.5 USDCm
   },
   insurance: {
     name:              'Chain Life Insurance',
     url:               process.env.INSURANCE_BILLER_URL  ?? 'http://localhost:3003',
     address:           (process.env.INSURANCE_BILLER_ADDRESS ?? '0x0000000000000000000000000000000000000003') as `0x${string}`,
-    defaultAmountUsdc: 89_000_000n,
+    defaultAmountUsdc: 89_000_000_000_000_000_000n,  // 89 USDCm
   },
 }
 
@@ -84,8 +86,9 @@ export async function payBillForEmployee(
   // wrapFetchWithPayment pays that address from executor wallet.
   console.log(`[bill:${bill.id}] x402 payment to ${biller.name}`)
   try {
-    const payingFetch = wrapFetchWithPayment(fetch, walletClient as any, {
-      schemes: [ExactEvmScheme],
+    const signerWithRead = walletClient!.extend(publicActions)
+    const payingFetch = wrapFetchWithPaymentFromConfig(fetch, {
+      schemes: [{ network: 'eip155:*', client: new ExactEvmScheme(signerWithRead as any) }],
     })
     const res = await payingFetch(`${biller.url}/pay`, {
       method:  'POST',
@@ -95,7 +98,8 @@ export async function payBillForEmployee(
     if (res.ok) {
       const data = await res.json() as any
       const reported = data.receipt?.amount
-      if (reported) billAmount = BigInt(Math.round(parseFloat(reported) * 1e6))
+      // USDCm has 18 decimals: convert human-readable string to base units
+      if (reported) billAmount = BigInt(Math.round(parseFloat(reported) * 1e18))
       console.log(`[bill:${bill.id}] Biller confirmed: ${data.receipt?.confirmationCode}`)
     } else {
       console.warn(`[bill:${bill.id}] Biller returned ${res.status}, using default amount`)
