@@ -87,7 +87,7 @@ mkdirSync(TEST_DIR, { recursive: true })
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-console.log('━━━ Private HCM — E2E Test ━━━')
+console.log('━━━ Payroll Ninja — E2E Test ━━━')
 console.log(`Executor: ${EXECUTOR_URL}`)
 console.log(`EOA:      ${EXECUTOR_EOA}`)
 

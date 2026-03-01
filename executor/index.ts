@@ -1,5 +1,5 @@
 /**
- * Private HCM — Fully Private Payroll Executor
+ * Payroll Ninja — Fully Private Payroll Executor
  *
  * Both employer and employee transactions are ZK-private inside the Unlink pool.
  * The only public on-chain events are:
@@ -49,7 +49,7 @@ app.use(cors({
 
 // ─── Info ──────────────────────────────────────────────────────────────────────
 app.get('/', (c) => c.json({
-  name:    'Private HCM Executor',
+  name:    'Payroll Ninja Executor',
   version: '4.0.0',
   mode:    'fully-private — both employer and employee transactions are ZK-hidden',
   privacy: {
@@ -143,7 +143,7 @@ import { serve } from '@hono/node-server'
 startScheduler()
 
 const port = parseInt(process.env.PORT ?? '3001')
-console.log(`\n  Private HCM Executor  http://localhost:${port}`)
+console.log(`\n  Payroll Ninja Executor  http://localhost:${port}`)
 console.log(`  Executor EOA: ${EXECUTOR_ADDRESS}`)
 console.log(`  Mode: fully private (employer + employee Unlink wallets)\n`)
 

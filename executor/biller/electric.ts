@@ -56,6 +56,8 @@ app.post(
     }),
 )
 
+import { serve } from '@hono/node-server'
+
 console.log(`\n⚡ ${BILLER_NAME}  http://localhost:${PORT}  payTo: ${BILLER_ADDRESS}`)
 
-export default { port: PORT, fetch: app.fetch }
+serve({ fetch: app.fetch, port: PORT })
